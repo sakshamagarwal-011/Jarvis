@@ -94,7 +94,9 @@ def get_base_dir():
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
 
+import os
 BASE_DIR        = get_base_dir()
+os.chdir(BASE_DIR)
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 # The conversation's model. A NAME, not a decision: the ladder lives in
@@ -438,7 +440,7 @@ TOOL_DECLARATIONS = [
                     )
                 },
                 "key":   {"type": "STRING", "description": "Short snake_case key (e.g. name, favorite_food, sister_name)"},
-                "value": {"type": "STRING", "description": "Concise value in English (e.g. Fatih, pizza, older sister)"},
+                "value": {"type": "STRING", "description": "Concise value in English (e.g. Saksham, pizza, older sister)"},
             },
             "required": ["category", "key", "value"]
         }
@@ -685,6 +687,10 @@ class JarvisLive:
         self.wake(reason="wake word")
 
     def wake(self, reason: str = "wake word") -> None:
+        try:
+            self.ui.bring_to_front()
+        except Exception:
+            pass
         if self._awake:
             return
         self._awake = True

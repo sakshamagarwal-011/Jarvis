@@ -135,7 +135,10 @@ class WakeWordDetector:
         if self._running:
             return True
         try:
-            from openwakeword.model import Model
+            import openwakeword
+            Model = getattr(openwakeword, "Model", None)
+            if Model is None:
+                from openwakeword.model import Model
             self._model = Model(wakeword_models=[WAKE_MODEL], inference_framework="onnx")
         except Exception as e:
             self._logger(f"Wake word: could not load model — {e}")

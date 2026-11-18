@@ -54,12 +54,30 @@ from PyQt6.QtWidgets import (
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QGraphicsScene, QGraphicsView,
     QStackedWidget, QTextEdit, QVBoxLayout, QWidget, QProgressBar,
+    QSlider, QSpinBox,
 )
 
 try:
     from core.avatar import HoloAvatar
 except Exception:      # pragma: no cover — HUD must never die over cosmetics
     HoloAvatar = None
+
+try:
+    from core.hand_tracking import HandTrackingWorker, HandTrackingFrame
+    HAVE_HAND_TRACKING = True
+except Exception as _e:
+    HandTrackingWorker = HandTrackingFrame = None
+    HAVE_HAND_TRACKING = False
+    print(f"[HandTracking] unavailable ({_e})")
+
+try:
+    from ui.holographic_file_explorer import HolographicFileExplorer
+    from ui.holographic_gesture_overlay import HoloGestureOverlay
+    HAVE_HOLO_EXPLORER = True
+except Exception as _e:
+    HolographicFileExplorer = HoloGestureOverlay = None
+    HAVE_HOLO_EXPLORER = False
+    print(f"[HoloExplorer] unavailable ({_e})")
 
 
 def _base_dir() -> Path:
@@ -2369,6 +2387,147 @@ class MemoryOverlay(_HudOverlay):
         QTimer.singleShot(0, self._rebuild)
 
 
+class GestureSettingsOverlay(_HudOverlay):
+    """Adjust camera device, gesture tracking sensitivity, and smoothing."""
+
+    applied = pyqtSignal()
+    _OW = 440
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from memory.config_manager import (
+            get_gesture_sensitivity, get_gesture_smoothing,
+            save_gesture_sensitivity, save_gesture_smoothing
+        )
+
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            GestureSettingsOverlay {{
+                background: rgba(0, 6, 12, 248);
+                border: 1px solid {C.BORDER_B};
+                border-radius: 6px;
+            }}
+        """)
+        self.setFixedWidth(self._OW)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        hdr = QLabel("✋  GESTURE & CAMERA CONFIG")
+        hdr.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
+        hdr.setStyleSheet(f"color: {C.PRI}; background: transparent;")
+        lay.addWidget(hdr)
+
+        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {C.BORDER}; margin: 2px 0;"); lay.addWidget(sep)
+
+        # 1. Camera Index
+        cam_row = QHBoxLayout()
+        cam_lbl = QLabel("Camera Index:")
+        cam_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        cam_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        cam_row.addWidget(cam_lbl)
+
+        self._cam_spin = QSpinBox()
+        self._cam_spin.setRange(0, 8)
+        curr_cam = 0
+        try:
+            import json
+            cfg = json.loads(API_FILE.read_text(encoding="utf-8"))
+            curr_cam = int(cfg.get("camera_index", 0))
+        except Exception:
+            curr_cam = 0
+        self._cam_spin.setValue(curr_cam)
+        self._cam_spin.setStyleSheet(f"""
+            QSpinBox {{
+                background: {C.PANEL2}; color: {C.WHITE};
+                border: 1px solid {C.BORDER_B}; border-radius: 3px; padding: 2px 6px;
+            }}
+        """)
+        cam_row.addWidget(self._cam_spin)
+        lay.addLayout(cam_row)
+
+        # 2. Gesture Sensitivity
+        curr_sens = get_gesture_sensitivity()
+        sens_row = QHBoxLayout()
+        self._sens_lbl = QLabel(f"Sensitivity: {curr_sens:.1f}x")
+        self._sens_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._sens_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        sens_row.addWidget(self._sens_lbl)
+
+        self._sens_slider = QSlider(Qt.Orientation.Horizontal)
+        self._sens_slider.setRange(5, 25)
+        self._sens_slider.setValue(int(curr_sens * 10))
+        self._sens_slider.valueChanged.connect(
+            lambda v: self._sens_lbl.setText(f"Sensitivity: {v / 10.0:.1f}x")
+        )
+        sens_row.addWidget(self._sens_slider)
+        lay.addLayout(sens_row)
+
+        # 3. Cursor Smoothing
+        curr_smooth = get_gesture_smoothing()
+        smooth_row = QHBoxLayout()
+        self._smooth_lbl = QLabel(f"Smoothing: {curr_smooth:.2f}")
+        self._smooth_lbl.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        self._smooth_lbl.setStyleSheet(f"color: {C.TEXT}; background: transparent;")
+        smooth_row.addWidget(self._smooth_lbl)
+
+        self._smooth_slider = QSlider(Qt.Orientation.Horizontal)
+        self._smooth_slider.setRange(10, 90)
+        self._smooth_slider.setValue(int(curr_smooth * 100))
+        self._smooth_slider.valueChanged.connect(
+            lambda v: self._smooth_lbl.setText(f"Smoothing: {v / 100.0:.2f}")
+        )
+        smooth_row.addWidget(self._smooth_slider)
+        lay.addLayout(smooth_row)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        ok = QPushButton("▸  APPLY")
+        ok.setFixedHeight(30)
+        ok.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+        ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        ok.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.PRI};
+                border: 1px solid {C.PRI_DIM}; border-radius: 3px; }}
+            QPushButton:hover {{ background: {C.PRI_GHO}; border-color: {C.PRI}; }}
+        """)
+        ok.clicked.connect(self._apply)
+        btn_row.addWidget(ok)
+
+        cancel = QPushButton("CLOSE")
+        cancel.setFixedHeight(30)
+        cancel.setFont(QFont("Courier New", 9))
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {C.TEXT_MED};
+                border: 1px solid {C.BORDER}; border-radius: 3px; }}
+            QPushButton:hover {{ color: {C.TEXT}; border-color: {C.BORDER_B}; }}
+        """)
+        cancel.clicked.connect(self.hide)
+        btn_row.addWidget(cancel)
+
+        lay.addLayout(btn_row)
+
+    def _apply(self):
+        from memory.config_manager import (
+            save_gesture_sensitivity, save_gesture_smoothing, _patch_config
+        )
+        cam_idx = self._cam_spin.value()
+        sens = self._sens_slider.value() / 10.0
+        smooth = self._smooth_slider.value() / 100.0
+
+        save_gesture_sensitivity(sens)
+        save_gesture_smoothing(smooth)
+        _patch_config(camera_index=cam_idx)
+
+        self.hide()
+        self.applied.emit()
+
+
 class ClipboardPanel(QWidget):
     """Floating panel shown when text is copied — offers quick Jarvis actions."""
 
@@ -2958,6 +3117,12 @@ class MainWindow(QMainWindow):
     _quiz_sig       = pyqtSignal(str, object, object)  # (topic, questions, grader)
     _quiz_hide_sig  = pyqtSignal()
     _review_sig     = pyqtSignal(str, str, object, object)  # document review payload
+    _bring_front_sig = pyqtSignal()  # restore and bring window to foreground on wake
+    _hand_toggle_sig = pyqtSignal(bool)
+    _holo_files_sig  = pyqtSignal(str)
+    _holo_preview_sig = pyqtSignal(str)
+    _holo_folder_sig = pyqtSignal(str)
+    _holo_select_sig = pyqtSignal(str)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -3206,6 +3371,10 @@ class MainWindow(QMainWindow):
 
         # Quick-access drawer (floating overlay, built after central widget layout is done)
         self._quick_drawer = self._build_quick_drawer()
+        self._hand_worker = None
+        self._holo_explorer = None
+        self._gesture_overlay = None
+        self._gesture_settings_overlay = None
         self._ctrl_drawer = self._build_controls_drawer()
         self._warm_wake_state()
         self._update_autostart_btn(self._check_autostart())
@@ -3241,6 +3410,12 @@ class MainWindow(QMainWindow):
         self._quiz_sig.connect(self._show_quiz)
         self._quiz_hide_sig.connect(self._hide_quiz)
         self._review_sig.connect(self._show_review)
+        self._bring_front_sig.connect(self._bring_to_front)
+        self._hand_toggle_sig.connect(self._slot_set_hand_tracking)
+        self._holo_files_sig.connect(self._slot_show_holographic_files)
+        self._holo_preview_sig.connect(self._slot_preview_holographic_file)
+        self._holo_folder_sig.connect(self._slot_open_holographic_folder)
+        self._holo_select_sig.connect(self._slot_select_holographic_file)
         self._cam_stop = threading.Event()
 
         # Camera preview overlay (child of central widget, positioned in resizeEvent)
@@ -3250,6 +3425,14 @@ class MainWindow(QMainWindow):
         self._clipboard_panel = ClipboardPanel(self.centralWidget())
         self._clipboard_panel.action_requested.connect(self._on_clipboard_action)
         QApplication.clipboard().dataChanged.connect(self._on_clipboard_changed)
+
+        self._hand_worker = None
+        self._holo_explorer = None
+        self._gesture_overlay = None
+        self._gesture_settings_overlay = None
+        if HAVE_HOLO_EXPLORER and HoloGestureOverlay is not None:
+            self._gesture_overlay = HoloGestureOverlay(self.centralWidget())
+            self._gesture_overlay.hide()
 
         self._overlay: SetupOverlay | None = None
         self._ready = self._check_config()
@@ -3262,6 +3445,22 @@ class MainWindow(QMainWindow):
         sc_full.activated.connect(self._toggle_fullscreen)
         sc_intr = QShortcut(QKeySequence("Escape"), self)
         sc_intr.activated.connect(self._do_interrupt)
+
+    def _bring_to_front(self):
+        """Slot — restore from minimized or background and bring to front."""
+        try:
+            if self.isMinimized():
+                self.showNormal()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            if platform.system() == "Windows":
+                import ctypes
+                hwnd = int(self.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
 
     def _show_camera_frame(self, img_bytes: bytes):
         """Slot — display camera preview overlay (main thread)."""
@@ -3877,6 +4076,10 @@ class MainWindow(QMainWindow):
             self._position_quick_drawer()
         if hasattr(self, '_ctrl_drawer') and self._ctrl_drawer.isVisible():
             self._position_ctrl_drawer()
+        if hasattr(self, '_holo_explorer') and self._holo_explorer and self._holo_explorer.isVisible():
+            self._holo_explorer.setGeometry(cw.rect())
+        if hasattr(self, '_gesture_overlay') and self._gesture_overlay and self._gesture_overlay.isVisible():
+            self._gesture_overlay.setGeometry(cw.rect())
         self._fit_video()
 
     def _update_metrics(self):
@@ -4262,6 +4465,14 @@ class MainWindow(QMainWindow):
         settings_btn.clicked.connect(self._open_plugin_settings)
         lay.addWidget(settings_btn)
 
+        gesture_cfg_btn = QPushButton("✋  GESTURE & CAMERA")
+        gesture_cfg_btn.setFixedHeight(26)
+        gesture_cfg_btn.setFont(QFont("Courier New", 7))
+        gesture_cfg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        gesture_cfg_btn.setStyleSheet(_BTN_STYLE_DIM)
+        gesture_cfg_btn.clicked.connect(self._open_gesture_settings)
+        lay.addWidget(gesture_cfg_btn)
+
         w.adjustSize()
         return w
 
@@ -4313,6 +4524,13 @@ class MainWindow(QMainWindow):
         self._hud_btn = _row(QPushButton())
         self._hud_btn.clicked.connect(self._toggle_hud_style)
         self._refresh_hud_btn()
+
+        self._hand_btn = _row(QPushButton())
+        self._hand_btn.clicked.connect(self._toggle_hand_tracking)
+        self._refresh_hand_btn()
+
+        self._files_btn = _row(QPushButton("📁  HOLO FILES"), self._BTN_DIM)
+        self._files_btn.clicked.connect(lambda: self.show_holographic_files())
 
         w.adjustSize()
         return w
@@ -5467,6 +5685,205 @@ class MainWindow(QMainWindow):
         ov.raise_()
         self._plugin_settings_overlay = ov   # keep a reference so it isn't GC'd
 
+    # ── Holographic Gesture & Camera Settings ────────────────────────────────────
+
+    def _open_gesture_settings(self):
+        ov = GestureSettingsOverlay(parent=self.centralWidget())
+        ov.applied.connect(self._on_gesture_settings_applied)
+        self._centre_overlay(ov)
+        self._gesture_settings_overlay = ov
+
+    def _on_gesture_settings_applied(self):
+        self._log.append_log("SYS: Gesture & Camera settings updated.")
+        if self._hand_worker and self._hand_worker.isRunning():
+            from memory.config_manager import get_gesture_sensitivity, get_gesture_smoothing
+            self._hand_worker.set_sensitivity(get_gesture_sensitivity())
+            self._hand_worker.set_smoothing(get_gesture_smoothing())
+
+    # ── Holographic Hand Tracking & File Explorer ────────────────────────────────
+
+    def _refresh_hand_btn(self):
+        if not hasattr(self, "_hand_btn"):
+            return
+        active = self.is_hand_tracking_active()
+        if active:
+            self._hand_btn.setText("✋  HAND TRACK: ON")
+            self._hand_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: rgba(0, 212, 255, 30); color: {C.PRI};
+                    border: 1px solid {C.PRI}; border-radius: 3px; font-weight: bold;
+                }}
+                QPushButton:hover {{ background: rgba(0, 212, 255, 50); }}
+            """)
+        else:
+            self._hand_btn.setText("✋  HAND TRACK: OFF")
+            self._hand_btn.setStyleSheet(self._BTN_DIM)
+
+    def _toggle_hand_tracking(self):
+        new_state = not self.is_hand_tracking_active()
+        self.set_hand_tracking(new_state)
+
+    def is_hand_tracking_active(self) -> bool:
+        return bool(getattr(self, "_hand_worker", None) and self._hand_worker.isRunning())
+
+    def set_hand_tracking(self, enabled: bool) -> tuple[bool, str]:
+        if not HAVE_HAND_TRACKING or HandTrackingWorker is None:
+            self._log.append_log("ERR: Hand tracking unavailable (mediapipe/opencv missing).")
+            return False, "Hand tracking dependencies unavailable."
+
+        if enabled:
+            if self._hand_worker and self._hand_worker.isRunning():
+                return True, "Hand tracking is already active."
+            try:
+                from memory.config_manager import (
+                    get_gesture_sensitivity, get_gesture_smoothing, save_hand_tracking_enabled
+                )
+                self._hand_worker = HandTrackingWorker(self)
+                self._hand_worker.set_sensitivity(get_gesture_sensitivity())
+                self._hand_worker.set_smoothing(get_gesture_smoothing())
+
+                self._hand_worker.tracking_updated.connect(self._on_hand_tracking_updated)
+                self._hand_worker.gesture_detected.connect(self._on_gesture_detected)
+                self._hand_worker.status_changed.connect(self._on_hand_status_changed)
+                self._hand_worker.error_occurred.connect(self._on_hand_error)
+
+                self._hand_worker.start()
+                save_hand_tracking_enabled(True)
+
+                if self._gesture_overlay:
+                    self._gesture_overlay.setGeometry(self.centralWidget().rect())
+                    self._gesture_overlay.set_tracking_active(True)
+                    self._gesture_overlay.raise_()
+
+                self._refresh_hand_btn()
+                self._log.append_log("HOLO: Hand tracking online.")
+                return True, "Holographic hand tracking activated."
+            except Exception as e:
+                self._log.append_log(f"ERR: Failed to start hand tracking — {e}")
+                return False, f"Could not start hand tracking: {e}"
+        else:
+            try:
+                from memory.config_manager import save_hand_tracking_enabled
+                save_hand_tracking_enabled(False)
+                if self._hand_worker:
+                    self._hand_worker.stop()
+                    self._hand_worker = None
+                if self._gesture_overlay:
+                    self._gesture_overlay.set_tracking_active(False)
+                self._refresh_hand_btn()
+                self._log.append_log("HOLO: Hand tracking offline.")
+                return True, "Hand tracking deactivated."
+            except Exception as e:
+                return False, f"Error stopping hand tracking: {e}"
+
+    def show_holographic_files(self, path: str = "") -> None:
+        """Open or toggle the holographic file explorer."""
+        if not HAVE_HOLO_EXPLORER or HolographicFileExplorer is None:
+            self._log.append_log("ERR: Holographic file explorer unavailable.")
+            return
+
+        cw = self.centralWidget()
+        if self._holo_explorer is None:
+            start_p = Path(path) if path else None
+            self._holo_explorer = HolographicFileExplorer(start_dir=start_p, parent=cw)
+            self._holo_explorer.status_message.connect(lambda msg: self._log.append_log(f"FILE: {msg}"))
+            self._holo_explorer.file_opened.connect(lambda f: self._log.append_log(f"OPEN: {f}"))
+
+        if path:
+            self._holo_explorer.navigate_to(Path(path))
+
+        if self._holo_explorer.isVisible() and not path:
+            self._holo_explorer.hide()
+        else:
+            self._holo_explorer.setGeometry(cw.rect())
+            self._holo_explorer.show()
+            self._holo_explorer.raise_()
+            if self._gesture_overlay and self._gesture_overlay.isVisible():
+                self._gesture_overlay.raise_()
+
+    def preview_holographic_file(self, target: str) -> tuple[bool, str]:
+        if not self._holo_explorer or not self._holo_explorer.isVisible():
+            self.show_holographic_files()
+        if self._holo_explorer:
+            for card in self._holo_explorer.cards:
+                if target.lower() in card.name.lower():
+                    self._holo_explorer._on_card_clicked(card)
+                    return True, f"Previewing file '{card.name}' on holographic display."
+        return False, f"File matching '{target}' not found in current folder."
+
+    def open_holographic_folder(self, target: str) -> tuple[bool, str]:
+        if not self._holo_explorer or not self._holo_explorer.isVisible():
+            self.show_holographic_files()
+        if self._holo_explorer:
+            for card in self._holo_explorer.cards:
+                if card.is_dir and target.lower() in card.name.lower():
+                    self._holo_explorer.navigate_to(card.path)
+                    return True, f"Navigated into folder '{card.name}'."
+        return False, f"Folder matching '{target}' not found."
+
+    def select_holographic_file(self, target: str) -> tuple[bool, str]:
+        if not self._holo_explorer or not self._holo_explorer.isVisible():
+            self.show_holographic_files()
+        if self._holo_explorer:
+            for card in self._holo_explorer.cards:
+                if target.lower() in card.name.lower():
+                    self._holo_explorer._on_card_clicked(card)
+                    return True, f"Selected file '{card.name}'."
+        return False, f"File matching '{target}' not found."
+
+    def _slot_set_hand_tracking(self, enabled: bool):
+        self.set_hand_tracking(enabled)
+
+    def _slot_show_holographic_files(self, path: str):
+        self.show_holographic_files(path)
+
+    def _slot_preview_holographic_file(self, target: str):
+        self.preview_holographic_file(target)
+
+    def _slot_open_holographic_folder(self, target: str):
+        self.open_holographic_folder(target)
+
+    def _slot_select_holographic_file(self, target: str):
+        self.select_holographic_file(target)
+
+    def _on_hand_tracking_updated(self, frame):
+        if self._gesture_overlay and self._gesture_overlay.isVisible():
+            self._gesture_overlay.update_frame(frame)
+        if self._holo_explorer and self._holo_explorer.isVisible():
+            self._holo_explorer.handle_cursor_move(frame.cursor_pos[0], frame.cursor_pos[1])
+
+    def _on_gesture_detected(self, event_name: str, payload: dict):
+        if self._holo_explorer and self._holo_explorer.isVisible():
+            if event_name == "PINCH_CLICK":
+                self._holo_explorer.handle_pinch_select(payload.get("x", 0.5), payload.get("y", 0.5))
+            elif event_name == "PINCH_DRAG":
+                self._holo_explorer.handle_pinch_drag(
+                    payload.get("x", 0.5), payload.get("y", 0.5),
+                    payload.get("dx", 0.0), payload.get("dy", 0.0)
+                )
+            elif event_name == "PINCH_RELEASE":
+                self._holo_explorer.handle_pinch_release(payload.get("x", 0.5), payload.get("y", 0.5))
+            elif event_name in ("SWIPE_LEFT", "SWIPE_RIGHT", "SWIPE_UP", "SWIPE_DOWN"):
+                self._holo_explorer.handle_swipe(event_name)
+
+        if event_name == "PINCH_CLICK" and self._gesture_overlay and self._gesture_overlay.isVisible():
+            self._gesture_overlay.trigger_click_ripple(payload.get("x", 0.5), payload.get("y", 0.5))
+
+    def _on_hand_status_changed(self, status: str):
+        self._log.append_log(f"HOLO: {status}")
+
+    def _on_hand_error(self, err: str):
+        self._log.append_log(f"ERR [HandTrack]: {err}")
+
+    def closeEvent(self, event):
+        try:
+            if self._hand_worker:
+                self._hand_worker.stop()
+                self._hand_worker = None
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     # ── Clipboard intelligence ───────────────────────────────────────────────────
 
     def _on_clipboard_changed(self):
@@ -5847,3 +6264,31 @@ class JarvisUI:
     def stop_speaking(self):
         if not self.muted:
             self.set_state("LISTENING")
+
+    def bring_to_front(self):
+        """Thread-safe: unminimize and bring HUD to the foreground."""
+        self._win._bring_front_sig.emit()
+
+    def set_hand_tracking(self, enabled: bool) -> tuple[bool, str]:
+        """Thread-safe: activate or deactivate holographic hand gesture tracking."""
+        return self._win.set_hand_tracking(enabled)
+
+    def is_hand_tracking_active(self) -> bool:
+        """Thread-safe: check if hand tracking is currently active."""
+        return self._win.is_hand_tracking_active()
+
+    def show_holographic_files(self, path: str = "") -> None:
+        """Thread-safe: display holographic file explorer."""
+        self._win._holo_files_sig.emit(str(path or ""))
+
+    def preview_holographic_file(self, target: str) -> tuple[bool, str]:
+        """Thread-safe: preview file on holographic HUD."""
+        return self._win.preview_holographic_file(target)
+
+    def open_holographic_folder(self, target: str) -> tuple[bool, str]:
+        """Thread-safe: open folder in holographic explorer."""
+        return self._win.open_holographic_folder(target)
+
+    def select_holographic_file(self, target: str) -> tuple[bool, str]:
+        """Thread-safe: select file in holographic explorer."""
+        return self._win.select_holographic_file(target)

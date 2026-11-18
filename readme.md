@@ -1,23 +1,27 @@
-# ⚙️ MARK LV (55)
-### The Ultimate Cross-Platform Personal AI Assistant — By FatihMakes
+# ⚡ JARVIS
+### The Autonomous AI Desktop Agent — Real-Time Voice Intelligence, OS Computer Control & Vision Perception
 
-> 📺 **[Watch the full setup video on YouTube](https://www.youtube.com/@FatihMakes)**
+**Engineered & Developed by Saksham Agarwal ([@sakshamagarwal-011](https://github.com/sakshamagarwal-011))**
 
-A real-time voice AI that can hear, see, speak, and control your computer — on any OS. Supports Windows, macOS, and Linux. Built on the Gemini Live API for native audio streaming, delivering zero subscriptions and total digital autonomy.
+A real-time voice AI that can hear, see, speak, and physically operate your computer — on any OS. Supports Windows, macOS, and Linux. Built on the Gemini Live API for native audio streaming, featuring OS-level mouse and keyboard automation, real-time closed-loop screen understanding, and total digital autonomy.
 
 ---
 
 ## ✨ Overview
 
-Mark LIV gave the assistant a face. **Mark LV gives it a screen — and the stamina to keep working when a model goes down.**
+**JARVIS gives the AI agent real eyes, hands, brain, and voice to actually operate your desktop.**
 
 Say "play the new Dune trailer" and the video appears **where the avatar was**, in the HUD itself, muted until you ask for sound. A YouTube link, a local file, a direct URL or just a description to search for: they all land in the same place, and JARVIS tells you it is coming *before* the picture arrives instead of going quiet for five seconds.
 
-Underneath, every Gemini call in the app now goes through **one ladder of nine models**, ordered by measured response time rather than guesswork. When a model hits its quota, times out or disappears, the next rung takes the call and the dead one is put on a cooldown so nobody pays for it twice. Before this release, sixteen files named their own model, twenty-six times, with **no timeout at all** — one unwell alias could hang a request forever.
+Underneath, every Gemini call in the app now goes through **one ladder of nine models**, ordered by measured response time rather than guesswork. When a model hits its quota, times out or disappears, the next rung takes the call and the dead one is put on a cooldown so nobody pays for it twice.
 
-The release also draws a line through the bundled skill list. **Everything JARVIS ships with now drives the computer** — applications, files, the browser, the desktop, the screen. Five skills that served one hobby or one trade left the list, which is a thousand tokens the model no longer reads on every connection, and five fewer wrong tools for it to reach for.
+### 🤖 Genuine Autonomous Desktop Operating Pipeline
+JARVIS goes far beyond chatbot capabilities by implementing a physical **Perception → Plan → OS Execution → Wait → Post-Verification → Retry** loop:
+* **OS-Level Mouse Control**: Direct Win32 `SendInput` mouse moves with Bézier curves, left/right/double clicks, drag-and-drop, and mouse wheel scrolling.
+* **OS-Level Keyboard Control**: Full Unicode typing (`KEYEVENTF_UNICODE`), native shortcuts (`Ctrl+C`, `Ctrl+V`, `Win+R`, `Alt+Tab`), and input field clearing.
+* **Closed-Loop Screen Perception**: Real-time high-resolution screen capture, Gemini Vision element detection with physical coordinate mapping, and before/after verification (`ACTION_VERIFIED`, `ACTION_EXECUTED`, `ACTION_FAILED`).
 
-It's not just an assistant — it's an extension of your digital life.
+It's not just an assistant — it's an autonomous operator for your computer.
 
 ---
 
@@ -26,7 +30,10 @@ It's not just an assistant — it's an extension of your digital life.
 ### Core Features
 | Feature | Description |
 |---|---|
+| 🤖 Autonomous Desktop Agent | Genuine OS-level physical mouse & keyboard control with closed-loop visual verification |
 | 🧑‍🎤 Holographic Avatar | An animated human head in the HUD — real facial geometry, lit and drawn in software, no GPU or extra packages |
+| ✋ Holographic Hand Tracking | Control JARVIS using Iron Man–style hand gestures via webcam — point, pinch-select, drag, swipe, and zoom |
+| 📁 Holographic File Explorer | Futuristic floating workspace to browse, preview, select, and manage files visually with gestures or voice |
 | 👄 Real Lip-Sync | ~50 mouth shapes a second from the audio's formants **and** the transcript — closures, spreads and rounds, not a volume meter |
 | 🌍 Language-Free Mouth | Articulation is derived by Unicode reduction, so Latin, Cyrillic and Greek scripts all work from one rule set — and scripts that hide pronunciation fall back cleanly |
 | 🙂 Facial Acting | Brows track the phrase, gaze saccades between fixations, natural blinking, a small nod on stressed syllables |
@@ -78,9 +85,9 @@ It's not just an assistant — it's an extension of your digital life.
 
 ---
 
-## 🆕 What's New in Mark LV
+## 🆕 Features & Enhancements in JARVIS
 
-One new dependency for the whole release — `yt-dlp`, and only to turn a YouTube page into something Qt can play.
+One unified platform for real-time voice, vision understanding, and autonomous computer control.
 
 ### The display
 
@@ -138,7 +145,7 @@ That middle row is where the time was going. Only quota and 404 used to be coole
 #### 🧩 Everything bundled drives the computer
 The bundled skill list had grown to seventeen, and some of it was nobody's business but its author's. **Not everyone updates games; everyone opens applications.**
 
-Mark LV trims it to **twelve**, and every one of them does the same kind of thing: drive this machine. Applications, the browser, files, the desktop, the screen, the clock, the weather, the display. The rule is written into the project tree, so the next skill lands in the right folder without anyone having to ask.
+JARVIS organizes and streamlines actions so every one of them drives this machine: Applications, the browser, files, the desktop, the screen, the clock, the weather, the display. The rule is written into the project tree, so the next skill lands in the right folder without anyone having to ask.
 
 This is not only tidiness. Every bundled skill is declared to the model on **every** connection, whether you ever use it or not. The declarations sent at startup dropped from **16,827 characters to 12,907** — roughly a thousand tokens off every session, and five fewer wrong tools for the model to reach for.
 
@@ -152,15 +159,17 @@ This is not only tidiness. Every bundled skill is declared to the model on **eve
 * JARVIS **answered the video's soundtrack.** The microphone now follows the video's sound.
 * Qt's multimedia backend printed an ffmpeg banner to the console on every play, containing the **signed streaming URL with the viewer's IP address in it**. Silenced at startup.
 * **Every launch paid 201 ms for a plugin nobody had asked to use.** Discovery executes every file in `plugins/`, and `youtube_video` imported `requests` and `youtube_transcript_api` at module scope. Deferring one of them would have saved nothing — the transcript library imports `requests` itself. Both are now checked with `find_spec`, which answers "is it installed?" without executing anything, and loaded on first use: **plugin discovery 211 ms → 39 ms**.
-* A plugin that needed a file from a **newer Mark** was rejected with *"pip install core"*. The loader could not tell this project's own packages from a third-party one, so it told people to install a same-named stranger from an index — wrong, and a supply-chain hazard dressed up as a fix. First-party names now say the app is behind the plugin and that there is nothing to install.
+* A plugin was rejected with *"pip install core"*. The loader could not tell this project's own packages from a third-party one, so it told people to install a same-named stranger from an index — wrong, and a supply-chain hazard dressed up as a fix. First-party names now say the app is behind the plugin and that there is nothing to install.
 
-> Built on the Mark LI–LIV foundation: the **🧑‍🎤 Holographic Avatar**, **👄 Lip-Sync**, **🎚️ Push-to-Talk**, **🔇 Self-Echo Guard**, **🧩 Plugin System**, **♾️ Unlimited Sessions**, **🎨 Live Theming** and **🎙️ Wake Word** are all still here.
+> Core foundation features: **🤖 Autonomous Agent**, **🧑‍🎤 Holographic Avatar**, **👄 Lip-Sync**, **🎚️ Push-to-Talk**, **🔇 Self-Echo Guard**, **🧩 Plugin System**, **♾️ Unlimited Sessions**, **🎨 Live Theming** and **🎙️ Wake Word** are all integrated.
 
 ---
 
-## 🔄 The Foundation Update — in every Mark from LII
+## 🔄 Resilient Foundation & Architecture
 
-These four landed across **Mark LII, LIII, LIV and LV at the same time**, after each of those releases had already shipped. They are not what any one of those versions originally introduced; they are the floor all of them now stand on, so moving up a Mark never costs you something the one below it had.
+Key architectural principles:
+
+No new dependencies. No bundled asset files. No hardcoded language, and nothing that assumes one operating system.
 
 No new dependencies. No bundled asset files. No hardcoded language, and nothing that assumes one operating system.
 
@@ -249,33 +258,68 @@ It is held in memory only, deliberately: writing it to disk would make a fresh l
 * **The assistant could die on a log line.** Status lines carry emoji and arrows (`📤 file_controller → Moved: a.txt → Documents/`). On a non-UTF-8 console — cp1254 on a Turkish Windows, cp1251 on a Russian one, cp932 on a Japanese one — printing one raises `UnicodeEncodeError`, and because that print sits *after* the tool's own `try/except`, it escaped into the receive loop and took the session down.
 * **Every computer command paid for two model round trips.** `computer_settings` made an *entire second Gemini call, inside the tool*, purely to translate the request into one of its own action names — because the declaration only said "The action to perform", so the model rarely filled it in. When that second call failed, the fallback was `description.lower().replace(" ", "_")`, which turns the Turkish for "turn it down" into `sesi_kis` and straight into "Unknown action". The declaration now names all 56 actions and the rest is spelling tolerance handled locally by `difflib` in microseconds. When nothing matches it suggests real action names instead of dead-ending.
 * An unresolvable saved audio device, or one the driver refuses to open, falls back to the system default and says so — on both the microphone and the speakers.
-* A rejected session-resumption handle is dropped after one attempt, so an expired handle can never be replayed on every retry and prevent the reconnect it exists to protect.
+### ✋ Holographic Hand Gesture Recognition System (Iron Man HUD)
 
+JARVIS features an on-device, vision-based holographic hand tracking engine designed to look and feel like Tony Stark's lab interface while remaining a safe, dependable desktop tool.
 
+#### 🎯 Gestures & Capabilities
+
+| Gesture | Action | Visual HUD Feedback |
+|---|---|---|
+| **✋ Open Palm** | Activates hand mode / opens the Holographic File Explorer | Amber glowing brackets & HUD top status banner |
+| **👆 Index Point** | Moves virtual reticle across the screen (One-Euro adaptive EMA filter) | Cyan glowing rotating reticle with motion trail |
+| **👌 Pinch Select** | Clicks / selects file card under the cursor (debounced) | Cyan click ripple animation & card glowing pulse |
+| **🤏 Pinch Drag** | Spatial visual rearrangement of cards on the holographic canvas | Card lifts with cyan glow (no disk mutation) |
+| **✌️ Two-Finger Swipe** | **Left/Right**: History Back/Forward · **Up/Down**: Scroll workspace | Directional swipe feedback with cooldown protection |
+| **👐 Two-Hand Zoom** | Spread or bring hands together to resize file cards | Interactive scaling of holographic cards (0.7× – 1.6×) |
+| **⏸️ Emergency Pause** | Freezes gesture cursor and pauses tracking immediately | Reticle turns amber with `[PAUSED]` HUD indicator |
+
+#### 📁 Holographic Visual File Explorer
+
+A futuristic visual file workspace built directly on PyQt6:
+- **Glassmorphic Cards**: Floating cards with category glyphs (Python, Code, Documents, Images, Media, Folders).
+- **Integrated Previewer**: Real-time side inspector for reading text, scripts, markdown, and inspecting directory contents.
+- **Safe Operations**: Backed by `actions/file_controller.py` and `core/undo.py`. Selecting or moving cards is purely visual and never mutates disk files.
+- **Strict Confirmation Gate**: Deletion or destructive operations open a modal requiring physical confirmation. Never confirmed by accidental gestures alone.
+
+#### 🎙️ Voice + Hand Hybrid Control
+
+You can seamlessly combine natural voice commands with gesture interactions:
+- *"Jarvis, activate hand control."* → Powers on local webcam tracking.
+- *"Jarvis, disable hand control."* → Immediately releases webcam hardware.
+- *"Jarvis, open my files."* → Launches the holographic file workspace.
+- *"Jarvis, preview this document."* → Highlights and displays preview of target file.
+- *"Jarvis, open this folder."* → Navigates into subdirectories.
+
+#### ⚙️ Configuration & Privacy
+
+- **100% Local & Offline**: Hand tracking runs entirely on your CPU using MediaPipe Hand Landmarker (`core/models/hand_landmarker.task`) and OpenCV. No frames are sent over the network or uploaded to Gemini.
+- **Strictly Opt-In**: The camera is never turned on at startup.
+- **Customizable**: Open **⚙ SETUP → ✋ GESTURE & CAMERA** to configure:
+  - **Camera Index** (0, 1, 2...)
+  - **Sensitivity** (0.5× to 2.5× coordinate reach)
+  - **Smoothing** (0.10 to 0.90 jitter reduction)
+- **Instant Toggle**: Open **🎛 CONTROLS** to tap `✋ HAND TRACK: ON/OFF` or `📁 HOLO FILES` at any time.
 
 ---
 
-## 🗺️ Mark Roadmap
+## 🗺️ JARVIS Capabilities & Architecture Roadmap
 
-| Mark | Focus |
+| Generation | Focus & Milestones |
 |---|---|
-| **XLIX** | Auto-start · clipboard intelligence · assistant customization |
-| **L** | Session memory · background monitoring · proactive 2.0 · instant vision |
-| **LI** | Plugin system · affective dialog · proactive audio · unlimited sessions |
-| **LII** | Voice picker · live theming · reactive HUD · recallable memory · undo · real confirmation · audio device picker · session continuity |
-| **LIII** | Wake word · Gemini 3.1 Flash Live · instant acknowledgment · self-describing action/plugin architecture |
-| **LIV** | Holographic avatar · viseme lip-sync · facial acting · face-as-status · push-to-talk · self-echo guard · runtime self-knowledge & limits |
-| **LV** | Video on the HUD · model ladder with measured fallback · split settings drawers · trimmed bundled skill list |
-| *shared* | The last five above also shipped to LIII, LIV and LV at the same time — moving up a Mark never loses them |
-| **LVI+** | Interrupt by voice · conversation history · Telegram remote · full file access · security camera · Obsidian |
+| **Autonomous Agent** | OS-level mouse control, Unicode typing, Gemini Vision closed-loop verification, multi-step goal execution |
+| **Foundation** | Wake word · Gemini 3.1 Flash Live · instant acknowledgment · self-describing action/plugin architecture |
+| **Holographic HUD** | Holographic avatar · viseme lip-sync · facial acting · face-as-status · push-to-talk · self-echo guard |
+| **Resilience** | Video on HUD · 9-model ladder with measured fallback · split settings drawers · memory indexing |
+| **Future Vision** | Proactive desktop automation, local fine-tuned vision models, voice interrupt, multi-agent coordination |
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/FatihMakes/Mark-LV.git
-cd Mark-LV
+git clone https://github.com/sakshamagarwal-011/Jarvis.git
+cd Jarvis
 python setup.py        # installs deps for YOUR OS + the browser automation engine
 python main.py
 ```
@@ -291,7 +335,7 @@ python main.py
 | Requirement | Details |
 | --- | --- |
 | **OS** | Windows 10/11, macOS, or Linux |
-| **Python** | 3.11, 3.12 or 3.13 |
+| **Python** | 3.11, 3.12, 3.13 or 3.14 |
 | **Microphone** | Required for voice interaction (and for the "Hey Jarvis" wake word) |
 | **Speakers** | Required for voice replies |
 | **API Key** | Free Gemini API key (entered on first launch → `config/api_keys.json`) |
@@ -304,69 +348,53 @@ python main.py
 ## 🗂️ Project Structure
 
 ```
-Mark LV/
+Jarvis/
 ├── main.py                   # Core loop — Gemini Live session, audio I/O, viseme extraction, tool dispatch
 ├── ui.py                     # PyQt6 HUD — avatar canvas, waveform, log panel, settings drawer, camera feed
 ├── setup.py                  # OS-aware installer (skips wrong-OS dependencies, checks your Python)
+├── start_jarvis.bat          # Windows one-click desktop launcher
+├── start_jarvis_background.vbs # Silent background launcher
 ├── .gitignore                # Keeps your API key, TLS key and memories out of the repository
-├── plugins/
-│   └── _template.py          # Copy this to write a new skill — one file, drop in, done
-├── actions/                  # Bundled skills — each self-describes via a TOOL dict + handler
-│                             #   Everything here drives the COMPUTER, which is what decides
-│                             #   whether a new skill belongs in this folder at all.
+├── plugins/                  # Auto-discovered plugin extensions (Discord, Spotify, Steam, VS Code...)
+├── actions/                  # Bundled skills — self-describes via TOOL dict + handler
+│   ├── computer_control.py   # Full physical OS mouse/keyboard control & closed-loop execution
+│   ├── browser_control.py    # Playwright DOM automation + visual desktop fallback
+│   ├── hand_control.py       # Voice + hand hybrid router for gesture system & holo explorer
 │   ├── web_search.py         # Gemini + DDG parallel search (news, research, price, compare)
 │   ├── screen_processor.py   # Screen & webcam capture for vision
-│   ├── background_monitor.py # User-configured topic watching — daily DDG check
-│   ├── proactive.py          # Proactive 2.0 — time/context/rotation-aware check-ins
-│   ├── reminder.py           # OS-native scheduled notifications
-│   ├── system_monitor.py     # CPU / RAM / GPU / temperature telemetry
-│   ├── computer_settings.py  # Volume, brightness, WiFi, power (per-OS)
-│   ├── computer_control.py   # Keyboard shortcuts, mouse, window management
-│   ├── open_app.py           # Application launcher (per-OS name map)
-│   ├── browser_control.py    # Web browser control
-│   ├── file_controller.py    # File system operations
-│   ├── file_processor.py     # Document reading and summarization
-│   ├── send_message.py       # Messaging integration
-│   ├── weather_report.py     # Live weather data
-│   ├── video_player.py       # Plays video on the HUD, where the avatar normally is
-│   └── desktop.py            # Desktop and taskbar control
-├── memory/
-│   ├── memory_manager.py     # Load/save long_term.json — sessions, monitors, identity
-│   ├── config_manager.py     # api_keys.json access — key, OS, name, voice, colour, toggles
-│   └── long_term.json        # Persistent store — created on first run
+│   ├── file_controller.py    # File system operations with safety verification
+│   ├── video_player.py       # Plays video on the HUD where avatar normally is
+│   └── desktop.py            # Desktop and taskbar operations
 ├── core/
-│   ├── gemini.py             # One place for every one-shot Gemini call — model ladder, timeouts, cooldowns
-│   ├── prompt.txt            # All prompt wording — {tokens} are filled from the live system at startup
+│   ├── os_input.py           # Native Win32 SendInput mouse/keyboard injection & DPI awareness
+│   ├── vision_detector.py    # Gemini Vision UI element detection & interaction verification
+│   ├── screen_capture.py     # Full-resolution desktop capture & coordinate normalization
+│   ├── desktop_agent.py      # Closed-loop Autonomous Desktop Agent (Perception → Plan → Act → Verify)
+│   ├── hand_tracking.py      # MediaPipe + OpenCV hand tracking engine & adaptive One-Euro filter
+│   ├── models/
+│   │   └── hand_landmarker.task # 21-landmark local MediaPipe gesture model
+│   ├── gemini.py             # 9-model ladder, automatic cooldowns, and measured fallback
+│   ├── prompt.txt            # System prompt and autonomous execution rules
 │   ├── avatar.py             # Avatar renderer — lighting, pose, expression, mouth (QPainter)
-│   ├── avatar_mesh.py        # Head geometry — loads the face, generates skull/neck/rigs
-│   ├── face_model.obj        # The face itself (MediaPipe canonical model, Apache-2.0, 25 KB)
-│   ├── viseme.py             # Transcript → mouth shapes, fused with the audio's timing
-│   ├── echo.py               # Tells your voice from the assistant's own echo; self-calibrating
-│   ├── hotkey.py             # Push-to-talk chord — global on Windows, windowed fallback elsewhere
-│   ├── undo.py               # One shared undo stack — actions register how to reverse themselves
-│   ├── confirm.py            # Irreversible-action gate — the token is issued by the UI, not the model
-│   ├── audio_devices.py      # Microphone / speaker list — filtered, measured, resolved by name
-│   ├── plugin_loader.py      # Plugin engine — discovery, validation, crash isolation
-│   ├── action_loader.py      # Bundled-action engine — the built-in twin of plugin_loader
-│   └── wake_word.py          # Local "Hey Jarvis" detector — own thread, offline, opt-in
+│   ├── viseme.py             # Transcript → mouth shapes, fused with audio timing
+│   └── wake_word.py          # Local "Hey Jarvis" detector
+├── ui/
+│   ├── holographic_file_explorer.py  # 3D holographic file workspace & integrated previewer
+│   └── holographic_gesture_overlay.py # Iron Man HUD cursor, motion trails & pinch reticle
+├── tests/
+│   ├── local_test_server.py  # Local HTTP server for browser automation testing
+│   ├── test_e2e_automation.py # Comprehensive 6-stage real-world E2E verification test suite
+│   └── test_hand_tracking.py # Hand landmark tracking unit test
 └── config/
-    ├── api_keys.json         # API key, name, voice, colour, toggles — created on first launch (git-ignored)
-    └── certs/                # Self-signed TLS pair for the phone dashboard — generated locally (git-ignored)
+    ├── api_keys.json         # API key, name, voice, colour, toggles (git-ignored)
+    └── certs/                # Self-signed TLS pair for phone dashboard (git-ignored)
 ```
-
----
-
-## 🙏 Third-Party Assets
-
-| Asset | Source | Licence |
-| --- | --- | --- |
-| `core/face_model.obj` | [MediaPipe](https://github.com/google-ai-edge/mediapipe) canonical face model — 468 vertices of measured human face geometry | Apache License 2.0 |
 
 ---
 
 ## 🔒 Your Data
 
-Everything stays on your machine. There is no MARK server, no telemetry and no account.
+Everything stays on your machine. There is no external server, no telemetry and no account.
 
 | What | Where | Notes |
 |---|---|---|
@@ -374,9 +402,7 @@ Everything stays on your machine. There is no MARK server, no telemetry and no a
 | Dashboard TLS certificate + private key | `config/certs/` | Generated locally, self-signed, never leaves the machine. |
 | What the assistant remembers about you | `memory/long_term.json` | Delete the file to make it forget everything. |
 
-All three are listed in `.gitignore`, so a fork or a pull request cannot leak them by accident. **If you have already committed `config/api_keys.json` anywhere public, revoke that key** at [aistudio.google.com](https://aistudio.google.com/app/apikey) and generate a new one — removing the file in a later commit does not remove it from the history.
-
-Your voice is streamed to Google's Gemini Live API while a session is open; that is the one thing that leaves your computer, and it stops when you mute or close the app.
+All three are listed in `.gitignore`, so a fork or a pull request cannot leak them by accident.
 
 ---
 
@@ -387,12 +413,8 @@ Licensed under **[Creative Commons BY-NC 4.0](https://creativecommons.org/licens
 
 ---
 
-## 👤 Connect with the Creator
+## 👤 Author & Contributor
 
-Engineered by a developer building a real-world JARVIS-style assistant.
-⭐ **Star the repository to support the journey to Mark 100.**
-
-| Platform | Link |
-| --- | --- |
-| YouTube | [@FatihMakes](https://www.youtube.com/@FatihMakes) |
-| Instagram | [@fatihmakes](https://www.instagram.com/fatihmakes) |
+**Saksham Agarwal**
+* **GitHub**: [@sakshamagarwal-011](https://github.com/sakshamagarwal-011)
+* **Project Repository**: [sakshamagarwal-011/Jarvis](https://github.com/sakshamagarwal-011/Jarvis)

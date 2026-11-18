@@ -994,13 +994,36 @@ def browser_control(
         return result
 
     # ── Interactive actions (click/type/read…) ───────────────────────────────
-    # These require a physically controllable browser; the automation window
-    # only opens here, and as soon as it opens it goes to the user's last
-    # navigated page — it doesn't sit on a blank page.
+    # These prefer a Playwright DOM automation session when available;
+    # if Playwright is unavailable, or if the element is not found in DOM,
+    # it falls back to visual desktop automation (actual physical mouse/keyboard).
+    sess = None
     try:
         sess = _registry.get(browser)
     except Exception as e:
-        result = f"Could not start browser session: {e}"
+        print(f"[Browser] Playwright session note ({e}) — falling back to visual desktop automation")
+        sess = None
+
+    if sess is None:
+        from core.desktop_agent import DesktopAgent
+        agent = DesktopAgent(log_callback=lambda m: _log(player, m))
+        desc = params.get("description") or params.get("text") or params.get("selector", "")
+        if action in ("click", "smart_click"):
+            res = agent.click_element(desc, verify=True)
+            result = f"{res.status}: {res.explanation}"
+        elif action in ("type", "smart_type"):
+            res = agent.type_into_element(desc, params.get("text", ""), clear_first=params.get("clear_first", True))
+            result = f"{res.status}: {res.explanation}"
+        elif action == "scroll":
+            from core import os_input
+            os_input.scroll(params.get("direction", "down"), int(params.get("amount", 5)))
+            result = f"ACTION_EXECUTED: Scrolled {params.get('direction', 'down')}."
+        elif action == "press":
+            from core import os_input
+            os_input.press_key(params.get("key", "Enter"))
+            result = f"ACTION_EXECUTED: Pressed {params.get('key', 'Enter')}."
+        else:
+            result = f"ACTION_FAILED: Could not start browser automation session: {e}"
         _log(player, result)
         return result
 

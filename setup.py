@@ -1,5 +1,5 @@
 """
-MARK LIV — one-time setup.
+JARVIS — one-time setup.
 
 Installs the Python dependencies for THIS operating system only: the OS-specific
 packages in requirements.txt carry `sys_platform` markers, so a macOS or Linux
@@ -47,7 +47,7 @@ def _check_python() -> None:
               f"{MAX_PY[0]}.{MAX_PY[1]} and run setup with that.")
         return
     if v < MIN_PY:
-        print(f"\n❌ Python {v[0]}.{v[1]} detected — MARK LIV needs at "
+        print(f"\n❌ Python {v[0]}.{v[1]} detected — JARVIS needs at "
               f"least Python {MIN_PY[0]}.{MIN_PY[1]}.")
         print("   Install a supported version and run setup with it, e.g.:")
         print(f"     py -{MIN_PY[0]}.{MIN_PY[1]} setup.py        (Windows)")
@@ -56,7 +56,7 @@ def _check_python() -> None:
 
 
 def _check_assets() -> None:
-    """The avatar's face is a shipped file; a truncated clone should say so."""
+    """Check shipped model and mesh assets."""
     face = HERE / "core" / "face_model.obj"
     if not face.exists() or face.stat().st_size < 4096:
         print(
@@ -65,9 +65,16 @@ def _check_assets() -> None:
             "    Re-clone the repository, or fetch that one file again."
         )
 
+    hand_model = HERE / "core" / "models" / "hand_landmarker.task"
+    if not hand_model.exists():
+        print(
+            "\nℹ️  core/models/hand_landmarker.task is not cached yet — it will download "
+            "automatically on the first activation of hand tracking."
+        )
+
 
 def main() -> None:
-    print(f"⚙  MARK LIV setup — detected OS: {OS or 'unknown'}, "
+    print(f"⚙  JARVIS setup — detected OS: {OS or 'unknown'}, "
           f"Python {sys.version_info[0]}.{sys.version_info[1]}")
     _check_python()
 

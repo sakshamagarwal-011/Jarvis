@@ -382,3 +382,37 @@ def save_plugin_enabled(plugin_name: str, enabled: bool) -> None:
     plugins_cfg[plugin_name] = enabled
     data["plugins_enabled"] = plugins_cfg
     CONFIG_FILE.write_text(json.dumps(data, indent=4), encoding="utf-8")
+
+
+# ── Holographic Hand Tracking ────────────────────────────────────────────────
+def get_hand_tracking_enabled() -> bool:
+    """Opt-in: hand tracking is disabled by default."""
+    return bool(load_api_keys().get("hand_tracking_enabled", False))
+
+
+def save_hand_tracking_enabled(enabled: bool) -> None:
+    _patch_config(hand_tracking_enabled=bool(enabled))
+
+
+def get_gesture_sensitivity() -> float:
+    """Sensitivity factor for coordinate mapping (0.5 to 2.5, default 1.0)."""
+    try:
+        return float(load_api_keys().get("gesture_sensitivity", 1.0))
+    except (ValueError, TypeError):
+        return 1.0
+
+
+def save_gesture_sensitivity(value: float) -> None:
+    _patch_config(gesture_sensitivity=max(0.5, min(2.5, float(value))))
+
+
+def get_gesture_smoothing() -> float:
+    """Smoothing factor for cursor filtering (0.1 to 0.9, default 0.6)."""
+    try:
+        return float(load_api_keys().get("gesture_smoothing", 0.6))
+    except (ValueError, TypeError):
+        return 0.6
+
+
+def save_gesture_smoothing(value: float) -> None:
+    _patch_config(gesture_smoothing=max(0.1, min(0.9, float(value))))
