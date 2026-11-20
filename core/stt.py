@@ -4,6 +4,8 @@ Speech-to-Text engines for MARK XL.
 Whisper  – offline transcription via faster-whisper (VAD-buffered)
 Vosk     – offline streaming transcription (lighter)
 """
+from __future__ import annotations
+
 import json
 import numpy as np
 
@@ -13,16 +15,21 @@ class WhisperSTT:
 
     def __init__(self, model_name: str = "base", language: str | None = None):
         import os
-        from faster_whisper import WhisperModel
+        try:
+            from faster_whisper import WhisperModel  # type: ignore
+        except ImportError:
+            WhisperModel = None  # type: ignore
         print(f"[STT] Loading Whisper '{model_name}'…")
         try:
-            import torch
+            import torch  # type: ignore
             device  = "cuda" if torch.cuda.is_available() else "cpu"
             compute = "float16" if device == "cuda" else "int8"
         except Exception:
             device, compute = "cpu", "int8"
 
         try:
+            if WhisperModel is None:
+                raise ImportError("faster_whisper is not installed. Install with: pip install faster-whisper")
             self._model = WhisperModel(model_name, device=device, compute_type=compute)
         except Exception as _first_err:
             # Offline flag set but model not cached yet → clear flags and download once.
@@ -74,7 +81,10 @@ class VoskSTT:
     """Streaming transcription using Vosk."""
 
     def __init__(self, model_path: str | None = None, language: str = "en-us"):
-        from vosk import Model, KaldiRecognizer
+        try:
+            from vosk import Model, KaldiRecognizer  # type: ignore
+        except ImportError:
+            raise ImportError("vosk is not installed. Install with: pip install vosk")
         print("[STT] Loading Vosk model…")
         if model_path:
             model = Model(model_path)

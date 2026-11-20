@@ -122,6 +122,7 @@ class DesktopAgent:
         """
         self._log(f"Searching screen for: '{description}'...")
         action_name = "double_click" if clicks == 2 else ("right_click" if button == "right" else "click")
+        elem: Optional[DetectedElement] = None
 
         for attempt in range(max_retries + 1):
             before_shot = capture_screen()

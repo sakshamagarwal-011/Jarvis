@@ -815,7 +815,7 @@ def _all_windows_mac() -> list[tuple[str, str]]:
     # machine that has not granted Accessibility can still tell whether the
     # right document is open somewhere.
     try:
-        import Quartz
+        import Quartz  # type: ignore
         options = (Quartz.kCGWindowListOptionOnScreenOnly
                    | Quartz.kCGWindowListExcludeDesktopElements)
         info = Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID)
@@ -1155,7 +1155,7 @@ def _element_from_uia(info: Any, eid: int, depth: int, scale: float) -> Optional
 # its correct offset.
 # ---------------------------------------------------------------------------
 def _scan_mac(pid: int, deadline: float) -> tuple[list[Element], str]:
-    import ApplicationServices as AS
+    import ApplicationServices as AS  # type: ignore
 
     if not AS.AXIsProcessTrusted():
         raise PermissionError(
@@ -1278,7 +1278,7 @@ def _element_from_ax(AS: Any, node: Any, eid: int, depth: int
 # core/platform_support.py already reports.
 # ---------------------------------------------------------------------------
 def _scan_linux(window: Any, deadline: float) -> list[Element]:
-    import pyatspi
+    import pyatspi  # type: ignore
 
     if window is None:
         raise RuntimeError("no active window is exposed through AT-SPI")
@@ -1397,10 +1397,10 @@ def _ocr_reader() -> Optional[Callable[[Any], Any]]:
             return _ocr_engine
         try:
             if _HAS_RAPIDOCR:
-                from rapidocr_onnxruntime import RapidOCR
+                from rapidocr_onnxruntime import RapidOCR  # type: ignore
                 _ocr_engine = RapidOCR()
             elif _HAS_PADDLEOCR:
-                from paddleocr import PaddleOCR
+                from paddleocr import PaddleOCR  # type: ignore
                 _ocr_engine = PaddleOCR(show_log=False)
             else:
                 return None
@@ -2042,7 +2042,8 @@ def look(*, budget_s: float = SCAN_BUDGET_S, allow_ocr: bool = True) -> View:
         # at the exact moment a screen task starts, because the user has just
         # finished speaking to it. So the first thing the agent ever did was
         # spend seconds interrogating itself, repeatedly, while the interface it
-        # was interrogating tried to stay smooth. The whole application went
+        # was interrogating tried to stay smooth
+        # . The whole application went
         # stiff.
         #
         # There is nothing to be gained by reading it either. The agent's job is
