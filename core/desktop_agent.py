@@ -567,6 +567,12 @@ class DesktopAgent:
 
         before_shot = capture_screen()
 
+        if act in ("jump", "goto", "go_to") and (not isinstance(page_number, int) or page_number < 1):
+            return StepResult(
+                action="pdf_navigate", target=act, status="ACTION_FAILED",
+                explanation="PDF page number must be a positive integer.",
+            )
+
         if act in ("jump", "goto", "go_to") and page_number is not None:
             hotkey("ctrl", "g")
             time.sleep(0.2)
@@ -587,20 +593,26 @@ class DesktopAgent:
             press_key("pageup")
             time.sleep(0.3)
             explanation = "Navigated to previous PDF page."
-        else:
+        elif act in ("next", "page_down", "pagedown"):
             press_key("pagedown")
             time.sleep(0.3)
             explanation = "Navigated to next PDF page."
+        else:
+            return StepResult(
+                action="pdf_navigate", target=act, status="ACTION_FAILED",
+                explanation=f"Unsupported PDF navigation action: {act}",
+            )
 
         after_shot = capture_screen()
         diff = _image_diff_metric(before_shot.image, after_shot.image)
 
-        status = "ACTION_VERIFIED" if diff > 1.5 else "ACTION_EXECUTED"
+        # A screenshot delta only establishes that pixels changed, not that
+        # the requested PDF page was reached. Keep this outcome unverified.
         return StepResult(
             action="pdf_navigate",
             target=f"{act}:{page_number}" if page_number else act,
-            status=status,
-            explanation=explanation,
+            status="ACTION_EXECUTED",
+            explanation=f"{explanation} Page position not verified (visual delta: {diff:.1f}).",
         )
 
     def observe_screen(self) -> dict:
@@ -673,13 +685,14 @@ class DesktopAgent:
             self._log(f"Plan: {action.upper()} -> '{target}' ({reasoning})")
 
             if action == "done" or is_complete:
-                self._log(f"Goal '{goal}' marked complete by planner!")
+                # Planner assertions are not evidence of completion.
+                verified, summary = self._evaluate_goal_completion(goal, shot, steps)
                 return GoalExecutionResult(
                     goal=goal,
-                    success=True,
-                    status="ACTION_VERIFIED",
+                    success=verified,
+                    status="ACTION_VERIFIED" if verified else "ACTION_FAILED",
                     steps=steps,
-                    final_summary=reasoning or f"Goal '{goal}' successfully achieved.",
+                    final_summary=summary or reasoning or "Goal completion could not be verified.",
                 )
 
             # Execute specific planned action
@@ -827,5 +840,5 @@ Respond ONLY with valid JSON:
         except Exception as e:
             self._log(f"Goal evaluation error: {e}")
 
-        any_verified = any(s.status == "ACTION_VERIFIED" for s in history)
-        return any_verified, "Completed execution sequence."
+        # An earlier successful click does not establish overall goal success.
+        return False, "Unable to verify that the overall goal was completed."
