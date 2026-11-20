@@ -123,13 +123,29 @@ If the element is NOT visible on screen, return:
             print(f"[VisionDetector] Element '{description}' not found: {data.get('reasoning')}")
             return None
 
-        box = data.get("box_2d", [0, 0, 0, 0])
+        box = data.get("box_2d")
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            return None
+        try:
+            ymin, xmin, ymax, xmax = (float(v) for v in box)
+            confidence = float(data.get("confidence", 0))
+        except (TypeError, ValueError):
+            return None
+        if not (0 <= ymin < ymax <= 1000 and 0 <= xmin < xmax <= 1000):
+            return None
+        if not (0.6 <= confidence <= 1.0):
+            return None
         cp = data.get("center_point")
-        if cp and len(cp) >= 2:
-            cy, cx = int(cp[0]), int(cp[1])
+        if isinstance(cp, (list, tuple)) and len(cp) == 2:
+            try:
+                cy, cx = int(cp[0]), int(cp[1])
+            except (TypeError, ValueError):
+                return None
         else:
-            cy = int((box[0] + box[2]) / 2)
-            cx = int((box[1] + box[3]) / 2)
+            cy = int((ymin + ymax) / 2)
+            cx = int((xmin + xmax) / 2)
+        if not (ymin <= cy <= ymax and xmin <= cx <= xmax):
+            return None
 
         # Convert normalized (0-1000) coordinates to physical OS desktop coordinates
         screen_x, screen_y = shot.to_screen_coords(cx, cy)
@@ -141,7 +157,7 @@ If the element is NOT visible on screen, return:
             center_norm=(cx, cy),
             screen_x=screen_x,
             screen_y=screen_y,
-            confidence=float(data.get("confidence", 0.9)),
+            confidence=confidence,
             reasoning=str(data.get("reasoning", "")),
         )
 

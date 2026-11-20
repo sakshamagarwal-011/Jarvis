@@ -350,6 +350,8 @@ class TaskEngine:
 
         used_s = float(task["used"]["seconds"])
         rounds = int(task["used"]["rounds"])
+        # Cache read-only calls only. Reusing an earlier result for a write,
+        # click, or other action silently skips the user's requested operation.
         seen: dict[str, str] = {}
         last_text = ""
         while True:
@@ -416,10 +418,11 @@ class TaskEngine:
                 sig = call["name"] + json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False)
                 # The same call twice means the result was not taken in. Running it
                 # again costs quota and, for anything that acts, does it twice.
-                if sig not in seen:
-                    self._event(tid, "tool", f"{call['name']} {self._arg_hint(call.get('args'))}")
-                    seen[sig] = tools.execute(call["name"], call.get("args") or {})
-                results.append({"id": call["id"], "name": call["name"], "result": seen[sig]})
+                # Each tool call is an intentional action. Never silently
+                # suppress a repeated action because its arguments match.
+                self._event(tid, "tool", f"{call['name']} {self._arg_hint(call.get('args'))}")
+                result = tools.execute(call["name"], call.get("args") or {})
+                results.append({"id": call["id"], "name": call["name"], "result": result})
             if len(results) < len(calls):
                 # Stopped mid-round: drop the unanswered model turn rather than
                 # checkpoint a call with no result, which the next request would reject.

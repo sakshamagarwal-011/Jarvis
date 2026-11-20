@@ -391,11 +391,18 @@ class DesktopAgent:
                 coords = (elem.screen_x, elem.screen_y)
                 self._log(f"Located search result via vision at {coords}.")
 
-        # Tier 3: Empirical viewport coordinate fallback for Google search results
+        # Do not guess coordinates: a blind click can hit an advertisement,
+        # unrelated control, or empty space and must not be reported as success.
         if not coords:
-            info = get_screen_info()
-            coords = (int(info.width * 0.28), int(info.height * 0.35))
-            self._log(f"Using estimated search result coordinate fallback: {coords}")
+            return StepResult(
+                action="chrome_search_and_click",
+                target=query,
+                status="ACTION_FAILED",
+                explanation=(
+                    f"Could not identify search result #{result_index} for '{query}' "
+                    "using accessibility or vision; no click was performed."
+                ),
+            )
 
         # 4. Move mouse and click
         move_mouse(coords[0], coords[1], duration=0.25)
@@ -418,21 +425,17 @@ class DesktopAgent:
         diff_val = _image_diff_metric(shot_before.image, shot_after.image)
         new_title = get_foreground_window_title()
 
-        if "google search" not in new_title.lower() or diff_val > 5.0:
-            return StepResult(
-                action="chrome_search_and_click",
-                target=query,
-                status="ACTION_VERIFIED",
-                coordinates=coords,
-                explanation=f"Searched '{query}', clicked result #{result_index}, and navigated to '{new_title}'.",
-            )
-
+        # A changed title or screenshot is not proof that the intended
+        # destination loaded. Only a verified URL/DOM check can establish that.
         return StepResult(
             action="chrome_search_and_click",
             target=query,
             status="ACTION_EXECUTED",
             coordinates=coords,
-            explanation=f"Searched '{query}' and clicked result #{result_index} (Active window: '{new_title}').",
+            explanation=(
+                f"Clicked search result #{result_index} for '{query}', but destination "
+                f"navigation is unverified (window: '{new_title}', visual diff: {diff_val:.1f})."
+            ),
         )
 
     def scroll_to_bottom(self, max_scrolls: int = 25, delay: float = 0.35) -> StepResult:
@@ -564,6 +567,12 @@ class DesktopAgent:
 
         before_shot = capture_screen()
 
+        if act in ("jump", "goto", "go_to") and (not isinstance(page_number, int) or page_number < 1):
+            return StepResult(
+                action="pdf_navigate", target=act, status="ACTION_FAILED",
+                explanation="PDF page number must be a positive integer.",
+            )
+
         if act in ("jump", "goto", "go_to") and page_number is not None:
             hotkey("ctrl", "g")
             time.sleep(0.2)
@@ -584,20 +593,26 @@ class DesktopAgent:
             press_key("pageup")
             time.sleep(0.3)
             explanation = "Navigated to previous PDF page."
-        else:
+        elif act in ("next", "page_down", "pagedown"):
             press_key("pagedown")
             time.sleep(0.3)
             explanation = "Navigated to next PDF page."
+        else:
+            return StepResult(
+                action="pdf_navigate", target=act, status="ACTION_FAILED",
+                explanation=f"Unsupported PDF navigation action: {act}",
+            )
 
         after_shot = capture_screen()
         diff = _image_diff_metric(before_shot.image, after_shot.image)
 
-        status = "ACTION_VERIFIED" if diff > 1.5 else "ACTION_EXECUTED"
+        # A screenshot delta only establishes that pixels changed, not that
+        # the requested PDF page was reached. Keep this outcome unverified.
         return StepResult(
             action="pdf_navigate",
             target=f"{act}:{page_number}" if page_number else act,
-            status=status,
-            explanation=explanation,
+            status="ACTION_EXECUTED",
+            explanation=f"{explanation} Page position not verified (visual delta: {diff:.1f}).",
         )
 
     def observe_screen(self) -> dict:
@@ -670,13 +685,14 @@ class DesktopAgent:
             self._log(f"Plan: {action.upper()} -> '{target}' ({reasoning})")
 
             if action == "done" or is_complete:
-                self._log(f"Goal '{goal}' marked complete by planner!")
+                # Planner assertions are not evidence of completion.
+                verified, summary = self._evaluate_goal_completion(goal, shot, steps)
                 return GoalExecutionResult(
                     goal=goal,
-                    success=True,
-                    status="ACTION_VERIFIED",
+                    success=verified,
+                    status="ACTION_VERIFIED" if verified else "ACTION_FAILED",
                     steps=steps,
-                    final_summary=reasoning or f"Goal '{goal}' successfully achieved.",
+                    final_summary=summary or reasoning or "Goal completion could not be verified.",
                 )
 
             # Execute specific planned action
@@ -824,5 +840,5 @@ Respond ONLY with valid JSON:
         except Exception as e:
             self._log(f"Goal evaluation error: {e}")
 
-        any_verified = any(s.status == "ACTION_VERIFIED" for s in history)
-        return any_verified, "Completed execution sequence."
+        # An earlier successful click does not establish overall goal success.
+        return False, "Unable to verify that the overall goal was completed."
