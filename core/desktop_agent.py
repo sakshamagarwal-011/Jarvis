@@ -391,11 +391,18 @@ class DesktopAgent:
                 coords = (elem.screen_x, elem.screen_y)
                 self._log(f"Located search result via vision at {coords}.")
 
-        # Tier 3: Empirical viewport coordinate fallback for Google search results
+        # Do not guess coordinates: a blind click can hit an advertisement,
+        # unrelated control, or empty space and must not be reported as success.
         if not coords:
-            info = get_screen_info()
-            coords = (int(info.width * 0.28), int(info.height * 0.35))
-            self._log(f"Using estimated search result coordinate fallback: {coords}")
+            return StepResult(
+                action="chrome_search_and_click",
+                target=query,
+                status="ACTION_FAILED",
+                explanation=(
+                    f"Could not identify search result #{result_index} for '{query}' "
+                    "using accessibility or vision; no click was performed."
+                ),
+            )
 
         # 4. Move mouse and click
         move_mouse(coords[0], coords[1], duration=0.25)
@@ -418,21 +425,17 @@ class DesktopAgent:
         diff_val = _image_diff_metric(shot_before.image, shot_after.image)
         new_title = get_foreground_window_title()
 
-        if "google search" not in new_title.lower() or diff_val > 5.0:
-            return StepResult(
-                action="chrome_search_and_click",
-                target=query,
-                status="ACTION_VERIFIED",
-                coordinates=coords,
-                explanation=f"Searched '{query}', clicked result #{result_index}, and navigated to '{new_title}'.",
-            )
-
+        # A changed title or screenshot is not proof that the intended
+        # destination loaded. Only a verified URL/DOM check can establish that.
         return StepResult(
             action="chrome_search_and_click",
             target=query,
             status="ACTION_EXECUTED",
             coordinates=coords,
-            explanation=f"Searched '{query}' and clicked result #{result_index} (Active window: '{new_title}').",
+            explanation=(
+                f"Clicked search result #{result_index} for '{query}', but destination "
+                f"navigation is unverified (window: '{new_title}', visual diff: {diff_val:.1f})."
+            ),
         )
 
     def scroll_to_bottom(self, max_scrolls: int = 25, delay: float = 0.35) -> StepResult:
