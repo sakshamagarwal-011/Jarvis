@@ -33,6 +33,33 @@ from core.screen_capture import capture_screen, ScreenshotResult
 from core.vision_detector import find_element, verify_interaction, DetectedElement, VerificationResult, _clean_json_response
 
 
+def _find_via_screenview(description: str) -> Optional[tuple[int, int]]:
+    """
+    Fast, 0-token OS accessibility tree lookup via core.screenview.
+    Returns (center_x, center_y) in logical desktop coordinates if found, else None.
+    """
+    try:
+        from core import screenview
+        view = screenview.look()
+        desc_lower = description.strip().lower()
+        if not desc_lower:
+            return None
+        for elem in view.elements:
+            if not elem.enabled:
+                continue
+            name = (elem.name or "").lower().strip()
+            val = (elem.value or "").lower().strip()
+            if (desc_lower == name or desc_lower in name or (name and name in desc_lower) or
+                (val and desc_lower in val)):
+                cx = elem.rect[0] + elem.rect[2] // 2
+                cy = elem.rect[1] + elem.rect[3] // 2
+                return (cx, cy)
+    except Exception:
+        pass
+    return None
+
+
+
 @dataclass
 class StepResult:
     action: str
@@ -76,7 +103,23 @@ class DesktopAgent:
 
         for attempt in range(max_retries + 1):
             before_shot = capture_screen()
-            elem = find_element(before_shot, description)
+
+            # Tier 1: Try OS Accessibility Tree (instant, 0 tokens, pixel-exact)
+            acc_coords = _find_via_screenview(description)
+            if acc_coords:
+                self._log(f"Target identified via OS Accessibility tree at {acc_coords}.")
+                elem = DetectedElement(
+                    screen_x=acc_coords[0],
+                    screen_y=acc_coords[1],
+                    element_type="control",
+                    confidence=1.0,
+                    bounding_box=[acc_coords[1], acc_coords[0], acc_coords[1], acc_coords[0]],
+                    reasoning="Located via OS Accessibility Tree",
+                )
+            else:
+                # Tier 2: Visual Fallback via Gemini Vision
+                elem = find_element(before_shot, description)
+
 
             if not elem:
                 if attempt < max_retries:
