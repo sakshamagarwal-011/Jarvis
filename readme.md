@@ -9,6 +9,7 @@ A real-time voice AI that can hear, see, speak, and physically operate your comp
 
 ## ✨ Overview
 
+
 **JARVIS gives the AI agent real eyes, hands, brain, and voice to actually operate your desktop.**
 
 Say "play the new Dune trailer" and the video appears **where the avatar was**, in the HUD itself, muted until you ask for sound. A YouTube link, a local file, a direct URL or just a description to search for: they all land in the same place, and JARVIS tells you it is coming *before* the picture arrives instead of going quiet for five seconds.
