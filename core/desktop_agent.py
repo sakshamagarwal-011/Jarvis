@@ -17,11 +17,13 @@ import json
 import os
 import subprocess
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 from google.genai import types as gtypes
+from PIL import ImageChops, ImageStat
 
 from core import gemini
 from core.os_input import (
@@ -31,6 +33,26 @@ from core.os_input import (
 )
 from core.screen_capture import capture_screen, ScreenshotResult
 from core.vision_detector import find_element, verify_interaction, DetectedElement, VerificationResult, _clean_json_response
+
+
+def _image_diff_metric(img1, img2) -> float:
+    """Calculates mean RGB difference between two PIL images."""
+    try:
+        diff = ImageChops.difference(img1.convert("RGB"), img2.convert("RGB"))
+        stat = ImageStat.Stat(diff)
+        return float(sum(stat.mean))
+    except Exception:
+        return 10.0
+
+
+def _is_destructive(goal: str) -> bool:
+    """Blocks catastrophic commands unless explicitly confirmed."""
+    gl = goal.lower()
+    destructive_phrases = [
+        "delete all files", "format disk", "format c:", "rmdir /s", "del /f /s",
+        "drop database", "wipe drive", "wipe system", "factory reset", "delete windows",
+    ]
+    return any(p in gl for p in destructive_phrases)
 
 
 def _find_via_screenview(description: str) -> Optional[tuple[int, int]]:
@@ -295,18 +317,344 @@ class DesktopAgent:
             explanation=f"Command executed for '{app_name}'. Current window: '{after_title}'.",
         )
 
-    def execute_goal(self, goal: str, max_steps: int = 8) -> GoalExecutionResult:
+    def chrome_search_and_click(
+        self,
+        query: str,
+        result_index: int = 1,
+        verify: bool = True,
+    ) -> StepResult:
+        """
+        Navigates to Google in Chrome, searches for query, locates the first
+        relevant organic search result, clicks it, and verifies navigation.
+        """
+        self._log(f"Initiating Chrome search and click for: '{query}' (Result #{result_index})...")
+
+        # 1. Bring Chrome to front or launch
+        active_title = get_foreground_window_title().lower()
+        if "chrome" not in active_title:
+            focused = focus_window_by_title("Chrome") or focus_window_by_title("Google Chrome")
+            if not focused:
+                self._log("Chrome not running/focused. Launching Chrome...")
+                self.open_application("chrome", wait_seconds=2.0)
+            time.sleep(0.5)
+
+        # 2. Focus address bar and navigate to Google search URL directly
+        # Ctrl+L focuses address bar reliably across all Chromium / Windows browsers
+        hotkey("ctrl", "l")
+        time.sleep(0.15)
+        search_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
+        type_text(search_url, clear_first=False)
+        time.sleep(0.08)
+        press_key("enter")
+        self._log(f"Navigating to {search_url}. Waiting for search results to load...")
+        time.sleep(2.0)
+
+        # 3. Locate search result
+        coords = None
+        # Tier 1: Check OS accessibility tree via screenview
+        try:
+            from core import screenview
+            view = screenview.look()
+            ignore_phrases = {
+                "google", "search", "all", "images", "videos", "maps", "news",
+                "shopping", "books", "finance", "tools", "sign in", "settings",
+                "privacy", "terms", "advertising", "business", "how search works",
+                "feedback", "filters", "clear search", "voice search", "search by image",
+                "next", "previous", "more results", "people also ask",
+            }
+            candidate_links = []
+            for elem in view.elements:
+                role = (elem.role or "").lower()
+                name = (elem.name or "").strip()
+                if (role in ("link", "heading") or "link" in role) and len(name) > 6:
+                    if not any(ign in name.lower() for ign in ignore_phrases):
+                        cx = elem.rect[0] + elem.rect[2] // 2
+                        cy = elem.rect[1] + elem.rect[3] // 2
+                        if cy > 180 and cx > 100:
+                            candidate_links.append((cx, cy, name))
+            if candidate_links:
+                target_idx = max(0, min(result_index - 1, len(candidate_links) - 1))
+                coords = (candidate_links[target_idx][0], candidate_links[target_idx][1])
+                self._log(f"Located search result via accessibility tree: '{candidate_links[target_idx][2][:40]}' at {coords}.")
+        except Exception as e:
+            self._log(f"Accessibility search lookup note: {e}")
+
+        # Tier 2: Locate via Gemini Vision
+        shot_before = capture_screen()
+        if not coords:
+            self._log("Locating search result via vision model...")
+            elem = find_element(
+                shot_before,
+                f"first organic search result heading or link for '{query}' (exclude ads and sponsored links)",
+            )
+            if elem:
+                coords = (elem.screen_x, elem.screen_y)
+                self._log(f"Located search result via vision at {coords}.")
+
+        # Tier 3: Empirical viewport coordinate fallback for Google search results
+        if not coords:
+            info = get_screen_info()
+            coords = (int(info.width * 0.28), int(info.height * 0.35))
+            self._log(f"Using estimated search result coordinate fallback: {coords}")
+
+        # 4. Move mouse and click
+        move_mouse(coords[0], coords[1], duration=0.25)
+        time.sleep(0.08)
+        click()
+        self._log(f"Clicked search result at {coords}. Waiting for page to load...")
+        time.sleep(2.0)
+
+        if not verify:
+            return StepResult(
+                action="chrome_search_and_click",
+                target=query,
+                status="ACTION_EXECUTED",
+                coordinates=coords,
+                explanation=f"Searched for '{query}' and clicked result #{result_index}.",
+            )
+
+        # 5. Verify navigation
+        shot_after = capture_screen()
+        diff_val = _image_diff_metric(shot_before.image, shot_after.image)
+        new_title = get_foreground_window_title()
+
+        if "google search" not in new_title.lower() or diff_val > 5.0:
+            return StepResult(
+                action="chrome_search_and_click",
+                target=query,
+                status="ACTION_VERIFIED",
+                coordinates=coords,
+                explanation=f"Searched '{query}', clicked result #{result_index}, and navigated to '{new_title}'.",
+            )
+
+        return StepResult(
+            action="chrome_search_and_click",
+            target=query,
+            status="ACTION_EXECUTED",
+            coordinates=coords,
+            explanation=f"Searched '{query}' and clicked result #{result_index} (Active window: '{new_title}').",
+        )
+
+    def scroll_to_bottom(self, max_scrolls: int = 25, delay: float = 0.35) -> StepResult:
+        """
+        Scrolls active window or document downwards repeatedly until the bottom is reached.
+        Uses visual difference detection to identify when scrolling ceases to change the display.
+        """
+        self._log(f"Scrolling down to bottom (max {max_scrolls} steps)...")
+        consecutive_static = 0
+        total_scrolls = 0
+
+        prev_shot = capture_screen()
+
+        for i in range(1, max_scrolls + 1):
+            scroll(direction="down", amount=6)
+            time.sleep(delay)
+            total_scrolls += 1
+
+            curr_shot = capture_screen()
+            diff = _image_diff_metric(prev_shot.image, curr_shot.image)
+
+            # Minimal or no visual change indicates end of scrollable area
+            if diff < 1.0:
+                consecutive_static += 1
+                if consecutive_static >= 2:
+                    self._log(f"Bottom reached: no visual change after {total_scrolls} scrolls.")
+                    return StepResult(
+                        action="scroll_to_bottom",
+                        target="bottom",
+                        status="ACTION_VERIFIED",
+                        explanation=f"Scrolled to the bottom after {total_scrolls} scroll operations.",
+                        retries_used=i,
+                    )
+            else:
+                consecutive_static = 0
+
+            prev_shot = curr_shot
+
+        return StepResult(
+            action="scroll_to_bottom",
+            target="bottom",
+            status="ACTION_EXECUTED",
+            explanation=f"Completed {max_scrolls} scroll operations towards the bottom.",
+            retries_used=max_scrolls,
+        )
+
+    def scroll_until(
+        self,
+        description: str,
+        max_scrolls: int = 20,
+        direction: str = "down",
+        delay: float = 0.4,
+    ) -> StepResult:
+        """
+        Scrolls the screen incrementally until a specific UI element, text, or section is visible.
+        """
+        self._log(f"Scrolling {direction} until '{description}' is visible (max {max_scrolls} scrolls)...")
+        consecutive_static = 0
+        prev_shot = None
+
+        for i in range(max_scrolls + 1):
+            acc_coords = _find_via_screenview(description)
+            if acc_coords:
+                self._log(f"Found target '{description}' at {acc_coords} via accessibility after {i} scrolls.")
+                return StepResult(
+                    action="scroll_until",
+                    target=description,
+                    status="ACTION_VERIFIED",
+                    coordinates=acc_coords,
+                    explanation=f"Located '{description}' on screen after {i} scrolls.",
+                    retries_used=i,
+                )
+
+            curr_shot = capture_screen()
+            elem = find_element(curr_shot, description)
+            if elem and elem.confidence >= 0.6:
+                self._log(f"Found target '{description}' at ({elem.screen_x}, {elem.screen_y}) after {i} scrolls.")
+                return StepResult(
+                    action="scroll_until",
+                    target=description,
+                    status="ACTION_VERIFIED",
+                    coordinates=(elem.screen_x, elem.screen_y),
+                    explanation=f"Located '{description}' on screen after {i} scrolls.",
+                    retries_used=i,
+                )
+
+            if i >= max_scrolls:
+                break
+
+            if prev_shot is not None:
+                diff = _image_diff_metric(prev_shot.image, curr_shot.image)
+                if diff < 1.0:
+                    consecutive_static += 1
+                    if consecutive_static >= 2:
+                        self._log(f"Reached edge of scrollable page without finding '{description}'.")
+                        return StepResult(
+                            action="scroll_until",
+                            target=description,
+                            status="ACTION_FAILED",
+                            explanation=f"Reached end of content without finding '{description}' after {i} scrolls.",
+                            retries_used=i,
+                        )
+                else:
+                    consecutive_static = 0
+
+            prev_shot = curr_shot
+            scroll(direction=direction, amount=5)
+            time.sleep(delay)
+
+        return StepResult(
+            action="scroll_until",
+            target=description,
+            status="ACTION_FAILED",
+            explanation=f"Target '{description}' was not found after {max_scrolls} scrolls.",
+            retries_used=max_scrolls,
+        )
+
+    def pdf_navigate(
+        self,
+        action: str = "next",
+        page_number: Optional[int] = None,
+    ) -> StepResult:
+        """
+        Navigates PDF documents in active viewer (Acrobat, Chrome, Edge, Sumatra).
+        Supports page jumps, next/prev page, scrolling to bottom/top.
+        """
+        act = (action or "next").lower().strip()
+        self._log(f"Navigating PDF: action='{act}', page={page_number}...")
+
+        before_shot = capture_screen()
+
+        if act in ("jump", "goto", "go_to") and page_number is not None:
+            hotkey("ctrl", "g")
+            time.sleep(0.2)
+            type_text(str(page_number), clear_first=True)
+            time.sleep(0.1)
+            press_key("enter")
+            time.sleep(0.5)
+            explanation = f"Navigated to PDF page {page_number} via Ctrl+G."
+        elif act in ("to_bottom", "end", "last_page"):
+            hotkey("ctrl", "end")
+            time.sleep(0.4)
+            explanation = "Jumped to the end of the PDF document."
+        elif act in ("to_top", "home", "first_page"):
+            hotkey("ctrl", "home")
+            time.sleep(0.4)
+            explanation = "Jumped to the top of the PDF document."
+        elif act in ("prev", "previous", "page_up"):
+            press_key("pageup")
+            time.sleep(0.3)
+            explanation = "Navigated to previous PDF page."
+        else:
+            press_key("pagedown")
+            time.sleep(0.3)
+            explanation = "Navigated to next PDF page."
+
+        after_shot = capture_screen()
+        diff = _image_diff_metric(before_shot.image, after_shot.image)
+
+        status = "ACTION_VERIFIED" if diff > 1.5 else "ACTION_EXECUTED"
+        return StepResult(
+            action="pdf_navigate",
+            target=f"{act}:{page_number}" if page_number else act,
+            status=status,
+            explanation=explanation,
+        )
+
+    def observe_screen(self) -> dict:
+        """
+        Gathers structured awareness of active window, screen geometry,
+        and interactive UI elements via Windows UI Automation.
+        """
+        info = get_screen_info()
+        active_title = get_foreground_window_title()
+
+        elements_summary = []
+        try:
+            from core import screenview
+            view = screenview.look()
+            for elem in view.elements[:30]:
+                elements_summary.append({
+                    "role": elem.role,
+                    "name": elem.name,
+                    "value": elem.value,
+                    "rect": elem.rect,
+                    "enabled": elem.enabled,
+                })
+        except Exception:
+            pass
+
+        return {
+            "active_window": active_title,
+            "resolution": f"{info.width}x{info.height}",
+            "virtual_desktop": f"{info.virtual_width}x{info.virtual_height}",
+            "dpi_scale": info.dpi_scale,
+            "elements_count": len(elements_summary),
+            "elements": elements_summary,
+        }
+
+    def execute_goal(self, goal: str, max_steps: int = 12) -> GoalExecutionResult:
         """
         Autonomous Multi-Step Goal Execution Loop:
-        Plans next action based on current screenshot, executes it with physical OS input,
-        verifies outcome, and proceeds until goal is completed.
+        Observe → Plan → Act → Verify → Repeat.
+        Plans next action based on current screen and history, executes it with physical
+        OS input, verifies outcome, recovers from failures, and completes the workflow.
         """
         self._log(f"=== Starting Autonomous Goal Execution: '{goal}' ===")
+
+        # Safety Guard
+        if _is_destructive(goal):
+            return GoalExecutionResult(
+                goal=goal,
+                success=False,
+                status="ACTION_FAILED",
+                final_summary="Destructive action blocked for safety. Please confirm manually.",
+            )
+
         steps: list[StepResult] = []
 
         for step_num in range(1, max_steps + 1):
             shot = capture_screen()
-            self._log(f"Step {step_num}/{max_steps}: Analyzing current screen for goal '{goal}'...")
+            self._log(f"Step {step_num}/{max_steps}: Analyzing screen for goal '{goal}'...")
 
             plan = self._plan_next_step(goal, shot, steps)
             if not plan:
@@ -334,7 +682,19 @@ class DesktopAgent:
             # Execute specific planned action
             step_res: Optional[StepResult] = None
 
-            if action in ("click", "click_button", "click_link"):
+            if action in ("chrome_search_and_click", "search_and_click"):
+                res_idx = int(plan.get("result_index", 1))
+                step_res = self.chrome_search_and_click(target or text_val, result_index=res_idx)
+            elif action == "scroll_to_bottom":
+                max_s = int(plan.get("max_scrolls", 25))
+                step_res = self.scroll_to_bottom(max_scrolls=max_s)
+            elif action == "scroll_until":
+                max_s = int(plan.get("max_scrolls", 20))
+                dir_val = plan.get("direction", "down")
+                step_res = self.scroll_until(target or text_val, max_scrolls=max_s, direction=dir_val)
+            elif action == "pdf_navigate":
+                step_res = self.pdf_navigate(action=plan.get("direction", target or "next"), page_number=plan.get("page_number"))
+            elif action in ("click", "click_button", "click_link"):
                 step_res = self.click_element(target, clicks=1, verify=True)
             elif action == "double_click":
                 step_res = self.click_element(target, clicks=2, verify=True)
@@ -358,6 +718,10 @@ class DesktopAgent:
                 step_res = StepResult(action="scroll", target=dir_val, status="ACTION_EXECUTED", explanation=f"Scrolled {dir_val} by {amt}")
             elif action == "open_app":
                 step_res = self.open_application(target or text_val)
+            elif action == "focus_window":
+                ok = focus_window_by_title(target or text_val)
+                active_t = get_foreground_window_title()
+                step_res = StepResult(action="focus_window", target=target or text_val, status="ACTION_VERIFIED" if ok else "ACTION_FAILED", explanation=f"Focused window '{active_t}'" if ok else f"Could not focus '{target or text_val}'")
             elif action == "wait":
                 secs = float(plan.get("seconds", 2.0))
                 time.sleep(secs)
@@ -369,7 +733,7 @@ class DesktopAgent:
             if step_res:
                 steps.append(step_res)
                 if step_res.status == "ACTION_FAILED":
-                    self._log(f"Step {step_num} failed: {step_res.explanation}")
+                    self._log(f"Step {step_num} failed: {step_res.explanation}. Planner will attempt recovery.")
 
         # Final evaluation of whether goal was met
         final_shot = capture_screen()
@@ -396,7 +760,12 @@ Actions taken so far:
 
 Analyze the screenshot ({shot.width}x{shot.height}) and choose the SINGLE next immediate action to make progress towards the goal.
 Available actions:
+- "chrome_search_and_click": search Google in Chrome and click result (target: query, result_index: 1)
+- "scroll_to_bottom": scroll active window/page continuously to the bottom
+- "scroll_until": scroll page until target text/element is visible (target: description of element)
+- "pdf_navigate": navigate PDF (target: "next"|"prev"|"jump"|"to_bottom"|"to_top", page_number: number)
 - "open_app": launch application if not open (target: app name e.g. "chrome", "notepad")
+- "focus_window": bring existing window to foreground (target: window title or app name)
 - "click": click a visible button, link, or tab (target: clear description of element)
 - "double_click": double click an icon, file, or item (target: clear description)
 - "right_click": right click for context menu
@@ -410,9 +779,11 @@ Available actions:
 Respond ONLY with valid JSON in this structure:
 {{
   "goal_achieved": false,
-  "action": "click|type|open_app|press_key|hotkey|scroll|wait|done",
-  "target": "exact visual description of the UI element",
+  "action": "chrome_search_and_click|scroll_to_bottom|scroll_until|pdf_navigate|click|type|open_app|focus_window|press_key|hotkey|scroll|wait|done",
+  "target": "exact visual description or parameter",
   "text": "text to type or key name if applicable",
+  "result_index": 1,
+  "page_number": 1,
   "press_enter": false,
   "reasoning": "why this action is chosen"
 }}
@@ -453,6 +824,5 @@ Respond ONLY with valid JSON:
         except Exception as e:
             self._log(f"Goal evaluation error: {e}")
 
-        # If any step was verified, report success
         any_verified = any(s.status == "ACTION_VERIFIED" for s in history)
         return any_verified, "Completed execution sequence."

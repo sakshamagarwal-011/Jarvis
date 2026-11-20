@@ -245,6 +245,40 @@ def computer_control(
             res = agent.type_into_element(desc, text, clear_first=clear, press_enter=p_enter)
             return f"{res.status}: {res.explanation}"
 
+        # ── 3b. Chrome Search & Navigation ────────────────────────────────────
+        if action in ("chrome_search_and_click", "search_and_click"):
+            query = params.get("query", params.get("text", params.get("description", "")))
+            if not query:
+                return "ACTION_FAILED: No search query provided."
+            idx = int(params.get("result_index", 1))
+            res = agent.chrome_search_and_click(query, result_index=idx)
+            return f"{res.status}: {res.explanation}"
+
+        # ── 3c. Intelligent Scrolling & PDF Navigation ───────────────────────
+        if action == "scroll_to_bottom":
+            max_s = int(params.get("max_scrolls", 25))
+            res = agent.scroll_to_bottom(max_scrolls=max_s)
+            return f"{res.status}: {res.explanation}"
+
+        if action == "scroll_until":
+            desc = params.get("description", params.get("text", ""))
+            max_s = int(params.get("max_scrolls", 20))
+            direction = params.get("direction", "down")
+            res = agent.scroll_until(desc, max_scrolls=max_s, direction=direction)
+            return f"{res.status}: {res.explanation}"
+
+        if action == "pdf_navigate":
+            act = params.get("direction", params.get("text", "next"))
+            page_num = params.get("page_number")
+            if page_num is not None:
+                page_num = int(page_num)
+            res = agent.pdf_navigate(action=act, page_number=page_num)
+            return f"{res.status}: {res.explanation}"
+
+        if action in ("observe_screen", "screen_state"):
+            obs = agent.observe_screen()
+            return f"ACTION_VERIFIED: {json.dumps(obs, ensure_ascii=False)}"
+
         # ── 4. Autonomous Multi-Step Task Execution ───────────────────────────
         if action in ("execute_task", "autonomous_goal", "execute_workflow"):
             goal = params.get("task", params.get("goal", params.get("description", "")))
@@ -315,9 +349,10 @@ def computer_control(
 TOOL = {
     "name": "computer_control",
     "description": (
-        "Operating-system level computer control and visual automation. "
-        "Use this tool whenever the user asks to move the mouse, click a button, "
-        "type text, press hotkeys, scroll, drag, open windows, fill forms, or perform multi-step desktop tasks. "
+        "Operating-system level computer control and visual desktop automation. "
+        "Use this tool whenever the user asks to move the mouse, click a button or link, "
+        "type text, press hotkeys, scroll, drag, open windows, fill forms, search Chrome, "
+        "scroll to bottom, navigate PDFs, or perform multi-step desktop tasks. "
         "Supports closed-loop verified interactions where actions are visually confirmed."
     ),
     "parameters": {
@@ -328,8 +363,10 @@ TOOL = {
                 "description": (
                     "Action to execute: "
                     "click | double_click | right_click | move | drag | scroll | "
+                    "scroll_to_bottom | scroll_until | pdf_navigate | "
                     "type | smart_type | press | hotkey | clear_field | "
                     "click_element | type_element | find_element | execute_task | "
+                    "chrome_search_and_click | observe_screen | "
                     "screen_resolution | screenshot | focus_window | open_app | wait"
                 )
             },
@@ -341,9 +378,25 @@ TOOL = {
                 "type": "STRING",
                 "description": "Text to type into input fields, or single key name for press ('enter', 'tab', 'esc', 'backspace')"
             },
+            "query": {
+                "type": "STRING",
+                "description": "Search query for chrome_search_and_click"
+            },
             "task": {
                 "type": "STRING",
                 "description": "High-level multi-step goal for execute_task (e.g. 'Open Notepad and type Hello World', 'Log into the website with test credentials')"
+            },
+            "result_index": {
+                "type": "INTEGER",
+                "description": "For chrome_search_and_click: 1-based index of search result to open (default: 1)"
+            },
+            "page_number": {
+                "type": "INTEGER",
+                "description": "For pdf_navigate: Target PDF page number"
+            },
+            "max_scrolls": {
+                "type": "INTEGER",
+                "description": "Maximum number of scrolls for scroll_to_bottom or scroll_until (default: 25)"
             },
             "x": {
                 "type": "INTEGER",
@@ -367,7 +420,7 @@ TOOL = {
             },
             "direction": {
                 "type": "STRING",
-                "description": "Scroll direction: 'up' | 'down' | 'left' | 'right'"
+                "description": "Scroll direction: 'up' | 'down' | 'left' | 'right' or PDF action: 'next'|'prev'|'jump'|'to_bottom'|'to_top'"
             },
             "amount": {
                 "type": "INTEGER",

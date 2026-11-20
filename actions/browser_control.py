@@ -806,7 +806,16 @@ class _BrowserSession:
             print(f"[Browser] ✅ Launched [{label}] with JARVIS profile "
                   f"(sign-ins persist across sessions)")
         except Exception as e2:
-            raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
+            try:
+                unique_profile = str(Path.home() / ".jarvis_profiles" / f"{self.browser_name}_{os.getpid()}")
+                Path(unique_profile).mkdir(parents=True, exist_ok=True)
+                print(f"[Browser] Profile locked ({e2}); retrying with isolated profile: {unique_profile}")
+                self._context = await engine_obj.launch_persistent_context(unique_profile, **kwargs)
+                self._page = await self._adopt_page()
+                self.profile_kind = "isolated"
+                print(f"[Browser] ✅ Launched [{label}] with isolated profile")
+            except Exception as e3:
+                raise RuntimeError(f"Could not launch {self.browser_name}: {e2} | {e3}") from e3
 
 
     async def _get_page(self) -> Page:
@@ -877,6 +886,148 @@ class _BrowserSession:
     async def search(self, query: str, engine: str = "google") -> str:
         base = _SEARCH_ENGINES.get(engine.lower(), _SEARCH_ENGINES["google"])
         return await self.go_to(base + query.replace(" ", "+"))
+
+    async def search_and_click(self, query: str, result_index: int = 1, engine: str = "google") -> str:
+        page = await self._get_page()
+        try:
+            base = _SEARCH_ENGINES.get(engine.lower(), _SEARCH_ENGINES["google"])
+            nav_url = base + query.replace(" ", "+")
+            await page.goto(nav_url, wait_until="domcontentloaded", timeout=25_000)
+            await asyncio.sleep(1.0)
+
+            # Dismiss common cookie/consent dialogs if present
+            try:
+                consent = page.locator("button:has-text('Accept all'), button:has-text('I agree'), div[role='none'] button")
+                if await consent.count() > 0:
+                    await consent.first.click(timeout=1500)
+                    await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+            # Search result selectors for Google, DuckDuckGo, Bing
+            anchors = page.locator("#search a:has(h3), #rso a:has(h3), .result__title a, .b_algo h2 a, a:has(h3)")
+            count = await anchors.count()
+            if count == 0:
+                h3s = await page.locator("h3").all()
+                candidates = []
+                for h in h3s:
+                    p_a = h.locator("xpath=ancestor::a[1]")
+                    if await p_a.count() > 0:
+                        candidates.append((p_a, await h.inner_text()))
+                if candidates:
+                    idx = min(len(candidates), max(1, result_index)) - 1
+                    target_a, title = candidates[idx]
+                    await target_a.click(timeout=10_000)
+                    await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                    return outcome.done("browser_control", action="search_and_click",
+                                        query=query, clicked_title=title.strip(),
+                                        current_url=page.url, page_title=await page.title())
+
+            if count > 0:
+                idx = min(count, max(1, result_index)) - 1
+                target_loc = anchors.nth(idx)
+                title = (await target_loc.inner_text()).strip()
+                href = await target_loc.get_attribute("href")
+                await target_loc.click(timeout=10_000)
+                await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                return outcome.done("browser_control", action="search_and_click",
+                                    query=query, clicked_title=title, clicked_url=href,
+                                    current_url=page.url, page_title=await page.title())
+
+            return outcome.failed("browser_control", "no organic search results appeared on the page", query=query)
+        except Exception as e:
+            return outcome.failed("browser_control", f"search_and_click error: {e}", query=query)
+
+    async def scroll_to_bottom(self, max_scrolls: int = 25, pause_s: float = 0.4) -> str:
+        page = await self._get_page()
+        try:
+            scrolls = 0
+            for _ in range(max_scrolls):
+                prev_h = await page.evaluate("() => document.body.scrollHeight")
+                await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+                await asyncio.sleep(pause_s)
+                new_h = await page.evaluate("() => document.body.scrollHeight")
+                curr_y = await page.evaluate("() => window.scrollY + window.innerHeight")
+                scrolls += 1
+                if curr_y >= new_h - 10 and new_h == prev_h:
+                    break
+            final_h = await page.evaluate("() => document.body.scrollHeight")
+            return outcome.done("browser_control", action="scroll_to_bottom",
+                                total_height=final_h, scrolls_performed=scrolls, verified=True)
+        except Exception as e:
+            return outcome.failed("browser_control", f"scroll_to_bottom error: {e}")
+
+    async def scroll_until(self, text: str, max_scrolls: int = 20, direction: str = "down") -> str:
+        page = await self._get_page()
+        try:
+            sign = 1 if direction == "down" else -1
+            for step in range(max_scrolls):
+                loc = page.get_by_text(text, exact=False)
+                if await loc.count() > 0 and await loc.first.is_visible():
+                    await loc.first.scroll_into_view_if_needed(timeout=2000)
+                    return outcome.done("browser_control", action="scroll_until",
+                                        found=text, scrolls=step, verified=True)
+                await page.mouse.wheel(0, sign * 550)
+                await asyncio.sleep(0.3)
+            return outcome.failed("browser_control", f"target '{text}' not found after {max_scrolls} scrolls")
+        except Exception as e:
+            return outcome.failed("browser_control", f"scroll_until error: {e}")
+
+    async def pdf_navigate(self, page_number: int = None, action: str = "next") -> str:
+        page = await self._get_page()
+        try:
+            if page_number is not None:
+                curr = page.url
+                if ".pdf" in curr.lower():
+                    clean = curr.split("#")[0]
+                    await page.goto(f"{clean}#page={page_number}", wait_until="domcontentloaded", timeout=10_000)
+                    return outcome.done("browser_control", action="pdf_navigate", page=page_number, verified=True)
+                await page.keyboard.press("Home")
+                for _ in range(max(0, page_number - 1)):
+                    await page.keyboard.press("PageDown")
+                    await asyncio.sleep(0.08)
+                return outcome.done("browser_control", action="pdf_navigate", page=page_number, verified=True)
+
+            act = (action or "next").lower().strip()
+            if act in ("bottom", "to_bottom", "end"):
+                await page.keyboard.press("End")
+            elif act in ("top", "to_top", "home"):
+                await page.keyboard.press("Home")
+            elif act in ("next", "pagedown"):
+                await page.keyboard.press("PageDown")
+            elif act in ("prev", "previous", "pageup"):
+                await page.keyboard.press("PageUp")
+            return outcome.done("browser_control", action="pdf_navigate", subaction=act, verified=True)
+        except Exception as e:
+            return outcome.failed("browser_control", f"pdf_navigate error: {e}")
+
+    async def switch_tab(self, index: int = None, title: str = "") -> str:
+        page = await self._get_page()
+        ctx = page.context
+        pages = ctx.pages
+        if not pages:
+            return outcome.failed("browser_control", "no tabs are open")
+        if index is not None:
+            idx = min(len(pages) - 1, max(0, index))
+            self._page = pages[idx]
+            await self._page.bring_to_front()
+            return outcome.done("browser_control", action="switch_tab", index=idx,
+                                title=await self._page.title(), url=self._page.url)
+        if title:
+            for p in pages:
+                t = await p.title()
+                if title.lower() in t.lower() or title.lower() in p.url.lower():
+                    self._page = p
+                    await self._page.bring_to_front()
+                    return outcome.done("browser_control", action="switch_tab",
+                                        title=t, url=p.url, verified=True)
+        curr_idx = pages.index(page) if page in pages else 0
+        next_idx = (curr_idx + 1) % len(pages)
+        self._page = pages[next_idx]
+        await self._page.bring_to_front()
+        return outcome.done("browser_control", action="switch_tab", index=next_idx,
+                            title=await self._page.title(), url=self._page.url)
+
 
     async def click(self, selector: str = None, text: str = None) -> str:
         page = await self._get_page()
@@ -1270,7 +1421,22 @@ def browser_control(
 
         if action == "click":
             result = sess.run(sess.click(params.get("selector"), params.get("text")))
+        elif action == "search_and_click":
+            result = sess.run(sess.search_and_click(
+                params.get("query", ""), int(params.get("result_index", 1)), params.get("engine", "google")))
+        elif action == "scroll_to_bottom":
+            result = sess.run(sess.scroll_to_bottom(int(params.get("max_scrolls", 25))))
+        elif action == "scroll_until":
+            result = sess.run(sess.scroll_until(
+                params.get("text", params.get("description", "")), int(params.get("max_scrolls", 20)), params.get("direction", "down")))
+        elif action == "pdf_navigate":
+            p_num = int(params["page_number"]) if params.get("page_number") else None
+            result = sess.run(sess.pdf_navigate(p_num, params.get("subaction", params.get("action_type", "next"))))
+        elif action == "switch_tab":
+            idx = int(params["index"]) if params.get("index") is not None else None
+            result = sess.run(sess.switch_tab(idx, params.get("title", "")))
         elif action == "type":
+
             result = sess.run(sess.type_text(
                 params.get("selector"), params.get("text", ""), params.get("clear_first", True)))
         elif action == "scroll":
@@ -1365,12 +1531,25 @@ TOOL = {
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "go_to | search | click | type | scroll | fill_form | smart_click | smart_type | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"
+                "description": "go_to | search | search_and_click | click | type | scroll | scroll_to_bottom | scroll_until | pdf_navigate | switch_tab | fill_form | smart_click | smart_type | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"
             },
             "browser": {
                 "type": "STRING",
                 "description": "Target browser: chrome | edge | firefox | opera | operagx | brave | vivaldi | safari. Omit to use the currently active browser."
             },
+            "result_index": {
+                "type": "INTEGER",
+                "description": "For search_and_click: 1-based index of the search result to open (default: 1)"
+            },
+            "page_number": {
+                "type": "INTEGER",
+                "description": "For pdf_navigate: Page number to jump to in PDF documents"
+            },
+            "max_scrolls": {
+                "type": "INTEGER",
+                "description": "For scroll_to_bottom / scroll_until: Maximum scroll attempts (default: 20)"
+            },
+
             "url": {
                 "type": "STRING",
                 "description": "URL for go_to / new_tab action"

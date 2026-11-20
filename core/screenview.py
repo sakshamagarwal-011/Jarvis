@@ -766,13 +766,18 @@ def all_windows() -> list[tuple[str, str]]:
 def _all_windows_windows() -> list[tuple[str, str]]:
     import ctypes
     from ctypes import wintypes
+    try:
+        from core.os_input import _ensure_desktop_access
+        _ensure_desktop_access()
+    except Exception:
+        pass
 
     user32 = ctypes.windll.user32
     found: list[tuple[str, str]] = []
     names: dict[int, str] = {}
 
-    callback = ctypes.WINFUNCTYPE(
-        ctypes.c_bool, ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+    WNDENUMPROC = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def visit(hwnd, _param):
         try:
@@ -800,8 +805,9 @@ def _all_windows_windows() -> list[tuple[str, str]]:
             pass
         return True
 
-    user32.EnumWindows(callback(visit), None)
+    user32.EnumWindows(WNDENUMPROC(visit), 0)
     return found
+
 
 
 def _all_windows_mac() -> list[tuple[str, str]]:
@@ -852,11 +858,17 @@ def _all_windows_linux() -> list[tuple[str, str]]:
 def _foreground_windows() -> tuple[str, str, int, Any]:
     import ctypes
     from ctypes import wintypes
+    try:
+        from core.os_input import _ensure_desktop_access
+        _ensure_desktop_access()
+    except Exception:
+        pass
 
     user32 = ctypes.windll.user32
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return "", "", 0, None
+
 
     length = user32.GetWindowTextLengthW(hwnd)
     buf = ctypes.create_unicode_buffer(length + 1)
@@ -921,6 +933,18 @@ def _foreground_linux() -> tuple[str, str, int, Any]:
 # check the clock at every node.
 # ---------------------------------------------------------------------------
 def _scan_windows(hwnd: Any, scale: float, deadline: float) -> list[Element]:
+    try:
+        from core.os_input import _ensure_desktop_access
+        _ensure_desktop_access()
+    except Exception:
+        pass
+
+    try:
+        import comtypes
+        comtypes.CoInitialize()
+    except Exception:
+        pass
+
     from pywinauto.uia_element_info import UIAElementInfo
 
     root = UIAElementInfo(hwnd)
@@ -932,17 +956,9 @@ def _scan_windows(hwnd: Any, scale: float, deadline: float) -> list[Element]:
     visited = 0
     while frontier and len(out) < MAX_ELEMENTS:
         if time.monotonic() > deadline:
-            raise TimeoutError("accessibility scan exceeded its budget")
+            break
 
         # Let everything else breathe, every so often.
-        #
-        # A tree walk is hundreds of cross-process calls in a tight Python loop,
-        # and this runs on a worker thread inside an application that is also
-        # streaming audio and animating a face at fifty frames a second. Without
-        # a yield the walk holds the interpreter for as long as it runs and the
-        # user hears it: the voice stutters and the HUD goes stiff. Sleeping for
-        # a millisecond every fiftieth node costs a few milliseconds per scan and
-        # gives the audio thread its turn.
         visited += 1
         if visited % 50 == 0:
             time.sleep(0.001)
@@ -955,12 +971,15 @@ def _scan_windows(hwnd: Any, scale: float, deadline: float) -> list[Element]:
 
         el = _element_from_uia(node, len(out), depth, scale)
         if el is not None:
-            out.append(el)
+            # Skip off-screen minimized coordinates (-32000)
+            if el.rect[0] > -10000 and el.rect[1] > -10000:
+                out.append(el)
 
         for child in children:
             frontier.append((child, depth + 1))
 
     return out
+
 
 
 # UIA pattern ids. Numbers rather than names because the constants live in a

@@ -803,7 +803,7 @@ def focus_window_by_title(title_fragment: str) -> bool:
                         candidates.append((hwnd, buf.value))
             return True
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
         ctypes.windll.user32.EnumWindows(WNDENUMPROC(enum_windows_callback), 0)
 
         if candidates:
